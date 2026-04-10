@@ -9,7 +9,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 
 import sharp from "sharp";
-import { GoogleGenAI } from "@google/genai";
+import { GenerateVideosOperation, GoogleGenAI } from "@google/genai";
 
 import { getGoogleAPIKey } from "@/lib/config";
 import type { VideoFormat } from "@/lib/types";
@@ -109,8 +109,12 @@ export async function retrieveVeoJob(operationName: string): Promise<VideoJobSna
 
   const ai = new GoogleGenAI({ apiKey: getGoogleAPIKey() });
 
+  const pendingOperation = new GenerateVideosOperation();
+  pendingOperation.name = operationName;
+  pendingOperation.done = false;
+
   const operation = await ai.operations.getVideosOperation({
-    operation: { name: operationName, done: false },
+    operation: pendingOperation,
   });
 
   if (operation.done && operation.response?.generatedVideos?.length) {
