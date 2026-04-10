@@ -7,9 +7,8 @@ const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+p0x8AAAAASUVORK5CYII=";
 
 function buildImageFile() {
-  return new File([Buffer.from(TINY_PNG_BASE64, "base64")], "lookbook.png", {
-    type: "image/png",
-  });
+  const imageBytes = Uint8Array.from(Buffer.from(TINY_PNG_BASE64, "base64"));
+  return new File([imageBytes], "lookbook.png", { type: "image/png" });
 }
 
 describe("createVideoJob", () => {

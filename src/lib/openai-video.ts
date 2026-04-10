@@ -136,8 +136,8 @@ async function outpaintToFormat(
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: getOpenAIAPIKey() });
 
-  const imageFile = new File([imageCanvas], "image.jpg", { type: "image/jpeg" });
-  const maskFile  = new File([maskBuffer],  "mask.png",  { type: "image/png"  });
+  const imageFile = new File([Uint8Array.from(imageCanvas)], "image.jpg", { type: "image/jpeg" });
+  const maskFile  = new File([Uint8Array.from(maskBuffer)],  "mask.png",  { type: "image/png"  });
 
   console.log(`[Outpaint] Calling gpt-image-1 (${size}) to extend ${format} frame…`);
 
