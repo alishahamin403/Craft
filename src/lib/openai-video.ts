@@ -7,7 +7,7 @@
 
 import sharp from "sharp";
 
-import { getFalAPIKey } from "@/lib/config";
+import { getFalAPIKey, getOpenAIAPIKey } from "@/lib/config";
 import type { VideoFormat, VideoModelId } from "@/lib/types";
 
 const VIDEO_SIZE_BY_FORMAT: Record<VideoFormat, { width: number; height: number }> = {
@@ -151,7 +151,7 @@ async function outpaintToFormat(
     n: 1,
   });
 
-  const b64 = aiResponse.data[0]?.b64_json;
+  const b64 = aiResponse.data?.[0]?.b64_json;
   if (!b64) {
     console.warn("[Outpaint] gpt-image-1 returned no image, falling back to cover crop");
     const fallback = await sharp(imageBytes)

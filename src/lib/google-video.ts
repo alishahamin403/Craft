@@ -198,5 +198,6 @@ export async function downloadVeoVideo(
 
 // ── Cancel (no-op — Veo 2 operations cannot be cancelled via Gemini API) ──────
 export async function cancelVeoJob(_operationName: string): Promise<void> {
+  void _operationName;
   // Gemini API does not expose a cancel endpoint for video operations
 }

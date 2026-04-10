@@ -71,9 +71,16 @@ function ThemeToggle() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
-    setTheme(
-      (document.documentElement.dataset.theme as "light" | "dark") || "light",
-    );
+    const syncTheme = () => {
+      const currentTheme = document.documentElement.dataset.theme;
+      setTheme(currentTheme === "dark" ? "dark" : "light");
+    };
+    const frame = window.requestAnimationFrame(syncTheme);
+    window.addEventListener("storage", syncTheme);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("storage", syncTheme);
+    };
   }, []);
 
   const toggle = () => {
@@ -696,7 +703,6 @@ export default function Dashboard({
     void refresh();
     const interval = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingIdsKey]);
 
   const hasActiveGeneration = isSubmitting || pendingGenerationIds.length > 0;
