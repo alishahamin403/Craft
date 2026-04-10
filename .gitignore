@@ -12,10 +12,13 @@
 
 # testing
 /coverage
+/test-results
+/.tmp
 
 # next.js
 /.next/
 /out/
+/data/
 
 # production
 /build
@@ -35,6 +38,12 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# Claude Code local settings (may contain sensitive permission history)
+.claude/settings.local.json
+
+# Codex
+.codex/
 
 # typescript
 *.tsbuildinfo

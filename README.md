@@ -1,4 +1,26 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Craft
+
+Craft is a red, Pinterest-inspired video generator for shalwar kameez product content. Upload one source image, describe the motion you want, and the app stores both the reference image and the generated short-form video in a local library.
+
+## Stack
+
+- Next.js App Router + TypeScript
+- SQLite via `better-sqlite3`
+- Local disk storage under `data/`
+- OpenAI video generation with `sora-2`
+- Vitest + Playwright test coverage
+
+## Environment
+
+Add one of these keys to `.env.local`:
+
+```bash
+OPENAI_API_KEY=your_openai_key
+# or
+OpenAIAPIKey=your_openai_key
+```
+
+`OPENAI_API_KEY` is preferred. `OpenAIAPIKey` is supported to match the existing Seline project convention.
 
 ## Getting Started
 
@@ -6,23 +28,22 @@ First, run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Tests
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run test:unit
+npm run test:e2e
+```
 
-## Learn More
+## Notes
 
-To learn more about Next.js, take a look at the following resources:
+- Generated assets and metadata are stored locally in `data/` and ignored by Git.
+- The UI accepts `1-5` second requests, but the current OpenAI short-clip path may render at `4` seconds when a shorter duration is not supported. The requested and submitted durations are both stored in the library.
+- The app copies completed video files into local storage immediately because OpenAI download URLs expire.
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.

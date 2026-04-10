@@ -1,17 +1,70 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+[data-theme="light"] {
+  --bg: #FAFAFA;
+  --bg-surface: #FFFFFF;
+  --text-primary: #1A1A1A;
+  --text-secondary: #717171;
+  --text-tertiary: #9E9E9E;
+  --border: #E8E8E8;
+  --border-strong: #D0D0D0;
+  --accent: #E53935;
+  --accent-hover: #C62828;
+  --accent-subtle: rgba(229, 57, 53, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+[data-theme="dark"] {
+  --bg: #0A0A0A;
+  --bg-surface: #161616;
+  --text-primary: #F5F5F5;
+  --text-secondary: #9E9E9E;
+  --text-tertiary: #616161;
+  --border: #262626;
+  --border-strong: #383838;
+  --accent: #EF5350;
+  --accent-hover: #E53935;
+  --accent-subtle: rgba(239, 83, 80, 0.1);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  color-scheme: dark;
+}
+
+/* ── Demo animation keyframes — global so inline SVG style refs work ── */
+@keyframes starTwinkle {
+  0%   { opacity: 0.15; }
+  100% { opacity: 1; }
+}
+@keyframes moonDrift {
+  0%   { transform: translateY(0px) translateX(0px); }
+  100% { transform: translateY(-6px) translateX(3px); }
+}
+@keyframes motionLines {
+  0%   { transform: translateX(-40px); opacity: 0; }
+  15%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translateX(140px); opacity: 0; }
+}
+@keyframes figureSway {
+  0%   { transform: rotate(-4deg); }
+  100% { transform: rotate(4deg); }
+}
+@keyframes glowPulse {
+  0%   { opacity: 0.3; transform: scaleX(0.7); }
+  100% { opacity: 1; transform: scaleX(1.4); }
 }
 
 html {
   height: 100%;
+  scroll-behavior: smooth;
 }
 
 html,
@@ -24,11 +77,12 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text-primary);
+  background: var(--bg);
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 * {
@@ -42,8 +96,19 @@ a {
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+img,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  background: var(--accent-subtle);
+  color: var(--accent);
 }
