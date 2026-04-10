@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 
 const OPENAI_ENV_KEYS = ["OPENAI_API_KEY", "OpenAIAPIKey"] as const;
@@ -29,7 +30,13 @@ export function getGoogleAPIKey() {
 
 export function getDataRoot() {
   const configured = process.env.CRAFT_DATA_ROOT?.trim();
-  return configured && configured.length > 0
-    ? path.resolve(configured)
-    : path.join(process.cwd(), "data");
+  if (configured && configured.length > 0) {
+    return path.resolve(configured);
+  }
+
+  if (process.env.VERCEL === "1") {
+    return path.join(os.tmpdir(), "craft");
+  }
+
+  return path.join(process.cwd(), "data");
 }
