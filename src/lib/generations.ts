@@ -91,10 +91,12 @@ export async function cancelGenerationRecord(id: string) {
     try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
   }
 
-  return updateGeneration(id, {
+  const cancelled = updateGeneration(id, {
     status: "failed",
     errorMessage: "Cancelled by user.",
   });
+
+  return toGenerationRecord(cancelled);
 }
 
 export function listGenerationRecords() {

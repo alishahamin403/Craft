@@ -34,7 +34,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Generation not found." }, { status: 404 });
   }
 
-  return NextResponse.json({ item: { ...item, progress: null, sourceImageUrl: item.sourceImageUrl, videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl } });
+  return NextResponse.json({ item });
 }
 
 export async function DELETE(
