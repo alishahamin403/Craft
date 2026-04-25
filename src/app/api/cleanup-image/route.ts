@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
+import { createUnauthorizedResponse, getUserFromRequest } from "@/lib/auth";
 import { getOpenAIAPIKey } from "@/lib/config";
 
 export const runtime = "nodejs";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    if (!getUserFromRequest(request)) return createUnauthorizedResponse();
+
     const formData = await request.formData();
     const image = formData.get("image");
 

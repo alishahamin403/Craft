@@ -74,6 +74,7 @@ describe("createGenerationEntry", () => {
       userPrompt: "Create a clean product reveal.",
       idempotencyKey: "same-submit-key",
       requestedSeconds: 5,
+      ownerId: "test-user",
     };
 
     const firstRequest = createGenerationEntry(input);

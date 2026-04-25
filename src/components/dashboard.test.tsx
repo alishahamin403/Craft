@@ -24,6 +24,13 @@ const failedGeneration: GenerationRecord = {
   mediaAspectRatio: "9/16",
 };
 
+const testUser = {
+  id: "test-user",
+  email: "creator@craft.local",
+  name: "Craft Creator",
+  picture: null,
+};
+
 describe("Dashboard", () => {
   it("renders failed library cards with the source image and error copy", () => {
     vi.stubGlobal("URL", {
@@ -31,7 +38,7 @@ describe("Dashboard", () => {
       revokeObjectURL: vi.fn(),
     });
 
-    render(<Dashboard initialGenerations={[failedGeneration]} />);
+    render(<Dashboard initialGenerations={[failedGeneration]} user={testUser} />);
 
     expect(
       screen.getByText("Video generation failed."),

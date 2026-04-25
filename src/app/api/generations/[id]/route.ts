@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
 
+import { createUnauthorizedResponse, getUserFromRequest } from "@/lib/auth";
 import {
   cancelAndDeleteGenerationRecord,
-  cancelGenerationRecord,
-  refreshGenerationRecord,
+  cancelGenerationRecordForOwner,
+  refreshGenerationRecordForOwner,
 } from "@/lib/generations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) return createUnauthorizedResponse();
+
   const { id } = await context.params;
-  const item = await refreshGenerationRecord(id);
+  const item = await refreshGenerationRecordForOwner(id, user.id);
 
   if (!item) {
     return NextResponse.json({ error: "Generation not found." }, { status: 404 });
@@ -24,11 +28,14 @@ export async function GET(
 }
 
 export async function PATCH(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) return createUnauthorizedResponse();
+
   const { id } = await context.params;
-  const item = await cancelGenerationRecord(id);
+  const item = await cancelGenerationRecordForOwner(id, user.id);
 
   if (!item) {
     return NextResponse.json({ error: "Generation not found." }, { status: 404 });
@@ -38,11 +45,14 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) return createUnauthorizedResponse();
+
   const { id } = await context.params;
-  const found = await cancelAndDeleteGenerationRecord(id);
+  const found = await cancelAndDeleteGenerationRecord(id, user.id);
 
   if (!found) {
     return NextResponse.json({ error: "Generation not found." }, { status: 404 });

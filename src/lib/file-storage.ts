@@ -3,6 +3,11 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { getDataRoot } from "@/lib/config";
+import {
+  ensureSupabaseStorageBucket,
+  isSupabaseBackendEnabled,
+  uploadSupabaseObject,
+} from "@/lib/supabase-server";
 
 const STORAGE_FOLDERS = ["uploads", "videos", "thumbnails"] as const;
 type StorageFolder = (typeof STORAGE_FOLDERS)[number];
@@ -31,6 +36,11 @@ async function ensureStorageFolder(folder: StorageFolder) {
 }
 
 export async function ensureStorageDirectories() {
+  if (isSupabaseBackendEnabled()) {
+    await ensureSupabaseStorageBucket();
+    return;
+  }
+
   await Promise.all(STORAGE_FOLDERS.map((folder) => ensureStorageFolder(folder)));
 }
 
@@ -46,18 +56,35 @@ export function getContentTypeFromPath(relativePath: string) {
   return EXTENSION_TO_MIME[path.extname(relativePath).toLowerCase()] ?? "application/octet-stream";
 }
 
-export async function saveUploadedImage(file: File) {
-  await ensureStorageFolder("uploads");
+function ownerPathSegment(ownerId: string | null | undefined) {
+  return Buffer.from(ownerId ?? "anonymous").toString("base64url");
+}
+
+export async function saveUploadedImage(file: File, ownerId?: string | null) {
+  if (!isSupabaseBackendEnabled()) {
+    await ensureStorageFolder("uploads");
+  }
 
   const extension =
     extensionFromMimeType(file.type) ||
     path.extname(file.name).toLowerCase() ||
     ".bin";
   const fileName = `${randomUUID()}${extension}`;
-  const relativePath = normalizeRelativePath(path.join("uploads", fileName));
-  const absolutePath = resolveStoredPath(relativePath);
+  const relativePath = normalizeRelativePath(path.join("uploads", ownerPathSegment(ownerId), fileName));
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  await writeFile(absolutePath, Buffer.from(await file.arrayBuffer()));
+  if (isSupabaseBackendEnabled()) {
+    await uploadSupabaseObject(
+      relativePath,
+      buffer,
+      file.type || getContentTypeFromPath(relativePath),
+    );
+    return relativePath;
+  }
+
+  const absolutePath = resolveStoredPath(relativePath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeFile(absolutePath, buffer);
 
   return relativePath;
 }
@@ -66,11 +93,25 @@ export async function saveGeneratedAsset(
   folder: Exclude<StorageFolder, "uploads">,
   fileName: string,
   buffer: Buffer,
+  ownerId?: string | null,
 ) {
-  await ensureStorageFolder(folder);
+  if (!isSupabaseBackendEnabled()) {
+    await ensureStorageFolder(folder);
+  }
 
-  const relativePath = normalizeRelativePath(path.join(folder, fileName));
+  const relativePath = normalizeRelativePath(path.join(folder, ownerPathSegment(ownerId), fileName));
+
+  if (isSupabaseBackendEnabled()) {
+    await uploadSupabaseObject(
+      relativePath,
+      buffer,
+      getContentTypeFromPath(relativePath),
+    );
+    return relativePath;
+  }
+
   const absolutePath = resolveStoredPath(relativePath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, buffer);
 
   return relativePath;

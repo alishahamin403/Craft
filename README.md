@@ -5,22 +5,39 @@ Craft is a red, Pinterest-inspired video generator for shalwar kameez product co
 ## Stack
 
 - Next.js App Router + TypeScript
-- SQLite via `better-sqlite3`
-- Local disk storage under `data/`
-- OpenAI video generation with `sora-2`
+- Supabase Postgres for users and generation metadata
+- Supabase Storage for private uploaded/generated media
+- fal.ai Kling video generation
+- Google OAuth sign-in with signed HTTP-only sessions
 - Vitest + Playwright test coverage
 
 ## Environment
 
-Add one of these keys to `.env.local`:
+Add these keys to `.env.local`:
 
 ```bash
+FAL_KEY=your_fal_key
 OPENAI_API_KEY=your_openai_key
-# or
-OpenAIAPIKey=your_openai_key
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
+AUTH_SECRET=generate_a_long_random_secret
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_STORAGE_BUCKET=craft-media
 ```
 
-`OPENAI_API_KEY` is preferred. `OpenAIAPIKey` is supported to match the existing Seline project convention.
+`OPENAI_API_KEY` powers image cleanup/outpainting. `FAL_KEY` powers video generation. `AUTH_SECRET` signs the local Craft session cookie. `SUPABASE_SERVICE_ROLE_KEY` must stay server-only.
+
+In Google Cloud Console, create an OAuth 2.0 Web application client and add this redirect URI for local development:
+
+```bash
+http://localhost:3000/api/auth/google/callback
+```
+
+For production, add the same callback path on your deployed domain.
+
+Before using Supabase, run the SQL in `supabase/migrations/0001_craft.sql` from the Supabase SQL Editor. It creates private app tables and the `craft-media` private storage bucket.
 
 ## Getting Started
 
@@ -41,9 +58,9 @@ npm run test:e2e
 
 ## Notes
 
-- Generated assets and metadata are stored locally in `data/` and ignored by Git.
-- The UI accepts `1-5` second requests, but the current OpenAI short-clip path may render at `4` seconds when a shorter duration is not supported. The requested and submitted durations are both stored in the library.
-- The app copies completed video files into local storage immediately because OpenAI download URLs expire.
+- Generated assets and metadata are stored in Supabase when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured. The local SQLite/disk backend is still available for tests with `CRAFT_STORAGE_BACKEND=local`.
+- The app auto-selects the compatible Kling model and format from the image, prompt, requested duration, and cost profile.
+- New generations are scoped to the signed-in Google user.
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.

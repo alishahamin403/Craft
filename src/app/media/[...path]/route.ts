@@ -4,11 +4,14 @@ import { Readable } from "node:stream";
 
 import { NextResponse } from "next/server";
 
+import { createUnauthorizedResponse, getUserFromRequest } from "@/lib/auth";
+import { getGenerationByStoredPath } from "@/lib/db";
 import {
   getContentTypeFromPath,
   readStoredAsset,
   resolveStoredPath,
 } from "@/lib/file-storage";
+import { createSupabaseSignedUrl, isSupabaseBackendEnabled } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,8 +56,26 @@ export async function GET(
 ) {
   const { path } = await context.params;
   const relativePath = path.join("/");
+  const user = getUserFromRequest(request);
+  if (!user) return createUnauthorizedResponse();
 
   try {
+    const ownerRow = await getGenerationByStoredPath(relativePath);
+    if (!ownerRow || ownerRow.ownerId !== user.id) {
+      return NextResponse.json({ error: "Media not found." }, { status: 404 });
+    }
+
+    if (isSupabaseBackendEnabled()) {
+      const signedUrl = await createSupabaseSignedUrl(relativePath);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: signedUrl,
+          "Cache-Control": "private, max-age=60",
+        },
+      });
+    }
+
     const absolutePath = resolveStoredPath(relativePath);
     const contentType = getContentTypeFromPath(relativePath);
     const range = request.headers.get("range");

@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { AuthUser } from "@/lib/auth";
 import type { GenerationItemResponse, GenerationRecord } from "@/lib/types";
 
 import CraftLogo from "./CraftLogo";
@@ -638,8 +639,10 @@ type Tab = "home" | "create" | "library";
 
 export default function Dashboard({
   initialGenerations,
+  user,
 }: {
   initialGenerations: GenerationRecord[];
+  user: AuthUser;
 }) {
   const [tab, setTab] = useState<Tab>(() =>
     initialGenerations.length > 0 ? "library" : "create",
@@ -891,6 +894,26 @@ export default function Dashboard({
         </nav>
 
         <ThemeToggle />
+        <div className={styles.userMenu}>
+          {user.picture ? (
+            <img
+              className={styles.userAvatar}
+              src={user.picture}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <span className={styles.userAvatarFallback}>
+              {user.email.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className={styles.userEmail}>{user.email}</span>
+          <form action="/api/auth/logout" method="post">
+            <button className={styles.signOutButton} type="submit">
+              Sign out
+            </button>
+          </form>
+        </div>
       </header>
 
       {/* ── Content ── */}

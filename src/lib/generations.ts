@@ -10,7 +10,7 @@ import {
 import {
   deleteGeneration,
   getGenerationByIdempotencyKey,
-  getGenerationById,
+  getGenerationByIdForOwner,
   insertGeneration,
   listGenerations,
   updateGeneration,
@@ -75,7 +75,7 @@ function getErrorMessage(error: unknown) {
 
 function isIdempotencyConstraintError(error: unknown) {
   return error instanceof Error &&
-    /UNIQUE constraint failed: generations\.idempotencyKey/i.test(error.message);
+    /(UNIQUE constraint failed: (generations\.ownerId, generations\.idempotencyKey|generations\.idempotencyKey)|duplicate key value violates unique constraint)/i.test(error.message);
 }
 
 async function finalizeCompletedGeneration(
@@ -84,12 +84,37 @@ async function finalizeCompletedGeneration(
   remoteVideoUrl: string | null = null,
 ) {
   if (remoteVideoUrl) {
-    return updateGeneration(row.id, {
-      status: "completed",
-      videoPath: remoteVideoUrl,
-      thumbnailPath: row.thumbnailPath,
-      errorMessage: null,
-    });
+    try {
+      const videoResponse = await fetch(remoteVideoUrl, { cache: "no-store" });
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download completed video (${videoResponse.status}).`);
+      }
+
+      const videoPath = await saveGeneratedAsset(
+        "videos",
+        buildGeneratedFileName(
+          row.id,
+          videoResponse.headers.get("content-type") ?? "video/mp4",
+          ".mp4",
+        ),
+        Buffer.from(await videoResponse.arrayBuffer()),
+        row.ownerId,
+      );
+
+      return await updateGeneration(row.id, {
+        status: "completed",
+        videoPath,
+        thumbnailPath: row.thumbnailPath,
+        errorMessage: null,
+      });
+    } catch {
+      return await updateGeneration(row.id, {
+        status: "completed",
+        videoPath: remoteVideoUrl,
+        thumbnailPath: row.thumbnailPath,
+        errorMessage: null,
+      });
+    }
   }
 
   const videoAsset = await downloadVideoAsset(videoId, "video");
@@ -97,6 +122,7 @@ async function finalizeCompletedGeneration(
     "videos",
     buildGeneratedFileName(row.id, videoAsset.contentType, ".mp4"),
     videoAsset.buffer,
+    row.ownerId,
   );
 
   let thumbnailPath: string | null = row.thumbnailPath;
@@ -106,12 +132,13 @@ async function finalizeCompletedGeneration(
       "thumbnails",
       buildGeneratedFileName(row.id, thumbnailAsset.contentType, ".webp"),
       thumbnailAsset.buffer,
+      row.ownerId,
     );
   } catch {
     thumbnailPath = row.thumbnailPath;
   }
 
-  return updateGeneration(row.id, {
+  return await updateGeneration(row.id, {
     status: "completed",
     videoPath,
     thumbnailPath,
@@ -120,30 +147,27 @@ async function finalizeCompletedGeneration(
 }
 
 export function deleteGenerationRecord(id: string) {
-  deleteGeneration(id);
+  return deleteGeneration(id);
 }
 
-export async function cancelAndDeleteGenerationRecord(id: string): Promise<boolean> {
-  const row = getGenerationById(id);
+export async function cancelAndDeleteGenerationRecord(id: string, ownerId: string): Promise<boolean> {
+  const row = await getGenerationByIdForOwner(id, ownerId);
   if (!row) return false;
 
   if (row.openaiVideoId && (row.status === "queued" || row.status === "in_progress")) {
     try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
   }
 
-  deleteGeneration(id);
+  await deleteGeneration(id);
   return true;
 }
 
-export async function cancelGenerationRecord(id: string) {
-  const row = getGenerationById(id);
-  if (!row) return null;
-
+async function cancelGenerationRow(row: GenerationRow) {
   if (row.openaiVideoId) {
     try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
   }
 
-  const cancelled = updateGeneration(id, {
+  const cancelled = await updateGeneration(row.id, {
     status: "failed",
     errorMessage: "Cancelled by user.",
   });
@@ -151,8 +175,16 @@ export async function cancelGenerationRecord(id: string) {
   return toGenerationRecord(cancelled);
 }
 
-export function listGenerationRecords() {
-  return listGenerations().map((row) => toGenerationRecord(row));
+export async function cancelGenerationRecordForOwner(id: string, ownerId: string) {
+  const row = await getGenerationByIdForOwner(id, ownerId);
+  if (!row) return null;
+
+  return cancelGenerationRow(row);
+}
+
+export async function listGenerationRecords(ownerId?: string) {
+  const rows = await listGenerations(ownerId);
+  return rows.map((row) => toGenerationRecord(row));
 }
 
 export async function createGenerationEntry(input: {
@@ -163,9 +195,10 @@ export async function createGenerationEntry(input: {
   model?: VideoModelId;
   format?: VideoFormat;
   requestedSeconds: number;
+  ownerId: string;
 }) {
   if (input.idempotencyKey) {
-    const existing = getGenerationByIdempotencyKey(input.idempotencyKey);
+    const existing = await getGenerationByIdempotencyKey(input.idempotencyKey, input.ownerId);
     if (existing) {
       return toGenerationRecord(existing);
     }
@@ -183,7 +216,7 @@ export async function createGenerationEntry(input: {
   const now = new Date().toISOString();
   let row: GenerationRow;
   try {
-    row = insertGeneration({
+    row = await insertGeneration({
       id: randomUUID(),
       idempotencyKey: input.idempotencyKey ?? null,
       prompt: input.prompt,
@@ -193,18 +226,18 @@ export async function createGenerationEntry(input: {
       format: route.format,
       requestedSeconds: route.requestedSeconds,
       submittedSeconds: null,
-      sourceImagePath: await saveUploadedImage(input.image),
+      sourceImagePath: await saveUploadedImage(input.image, input.ownerId),
       videoPath: null,
       thumbnailPath: null,
       openaiVideoId: null,
       errorMessage: null,
-      ownerId: null,
+      ownerId: input.ownerId,
       createdAt: now,
       updatedAt: now,
     });
   } catch (error) {
     if (input.idempotencyKey && isIdempotencyConstraintError(error)) {
-      const existing = getGenerationByIdempotencyKey(input.idempotencyKey);
+      const existing = await getGenerationByIdempotencyKey(input.idempotencyKey, input.ownerId);
       if (existing) return toGenerationRecord(existing);
     }
 
@@ -213,13 +246,14 @@ export async function createGenerationEntry(input: {
 
   try {
     const job = await createVideoJob({
-      ...input,
+      image: input.image,
+      prompt: input.prompt,
       model: route.model,
       format: route.format,
       requestedSeconds: route.requestedSeconds,
     });
 
-    let updated = updateGeneration(row.id, {
+    let updated = await updateGeneration(row.id, {
       status: job.status,
       openaiVideoId: job.id,
       submittedSeconds: job.submittedSeconds,
@@ -231,7 +265,7 @@ export async function createGenerationEntry(input: {
     }
 
     if (job.status === "failed") {
-      updated = updateGeneration(row.id, {
+      updated = await updateGeneration(row.id, {
         status: "failed",
         errorMessage: job.errorMessage ?? "Video generation failed.",
       });
@@ -239,7 +273,7 @@ export async function createGenerationEntry(input: {
 
     return toGenerationRecord(updated, job.progress);
   } catch (error) {
-    const failed = updateGeneration(row.id, {
+    const failed = await updateGeneration(row.id, {
       status: "failed",
       errorMessage: getErrorMessage(error),
     });
@@ -250,12 +284,7 @@ export async function createGenerationEntry(input: {
 
 const MAX_JOB_TIMEOUT_MS = 8 * 60 * 1000;
 
-export async function refreshGenerationRecord(id: string) {
-  const row = getGenerationById(id);
-  if (!row) {
-    return null;
-  }
-
+async function refreshGenerationRow(row: GenerationRow) {
   if (
     row.status === "completed" ||
     row.status === "failed" ||
@@ -272,7 +301,7 @@ export async function refreshGenerationRecord(id: string) {
   );
   if (age > timeoutMs) {
     try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
-    const timedOut = updateGeneration(id, {
+    const timedOut = await updateGeneration(row.id, {
       status: "failed",
       errorMessage: "Generation took longer than expected and was automatically stopped.",
     });
@@ -288,7 +317,7 @@ export async function refreshGenerationRecord(id: string) {
     }
 
     if (job.status === "failed") {
-      const failedRow = updateGeneration(id, {
+      const failedRow = await updateGeneration(row.id, {
         status: "failed",
         submittedSeconds: job.submittedSeconds,
         errorMessage: job.errorMessage ?? "Video generation failed.",
@@ -297,7 +326,7 @@ export async function refreshGenerationRecord(id: string) {
       return toGenerationRecord(failedRow);
     }
 
-    const pendingRow = updateGeneration(id, {
+    const pendingRow = await updateGeneration(row.id, {
       status: job.status,
       submittedSeconds: job.submittedSeconds,
       errorMessage: null,
@@ -305,11 +334,20 @@ export async function refreshGenerationRecord(id: string) {
 
     return toGenerationRecord(pendingRow, job.progress);
   } catch (error) {
-    const failed = updateGeneration(id, {
+    const failed = await updateGeneration(row.id, {
       status: "failed",
       errorMessage: getErrorMessage(error),
     });
 
     return toGenerationRecord(failed);
   }
+}
+
+export async function refreshGenerationRecordForOwner(id: string, ownerId: string) {
+  const row = await getGenerationByIdForOwner(id, ownerId);
+  if (!row) {
+    return null;
+  }
+
+  return refreshGenerationRow(row);
 }

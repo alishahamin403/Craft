@@ -15,6 +15,9 @@ export default defineConfig({
       NEXT_TELEMETRY_DISABLED: "1",
       OPENAI_API_KEY: "playwright-test-key",
       CRAFT_DATA_ROOT: ".tmp/playwright-data",
+      CRAFT_STORAGE_BACKEND: "local",
+      CRAFT_AUTH_BYPASS: "1",
+      CRAFT_AUTH_BYPASS_EMAIL: "playwright@craft.local",
     },
   },
   projects: [
