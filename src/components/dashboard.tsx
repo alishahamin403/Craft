@@ -3,22 +3,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  GenerationItemResponse,
-  GenerationRecord,
-  VideoFormat,
-  VideoModelId,
-} from "@/lib/types";
-import { VIDEO_MODEL_CATALOG } from "@/lib/types";
+import type { GenerationItemResponse, GenerationRecord } from "@/lib/types";
 
 import CraftLogo from "./CraftLogo";
 import styles from "./dashboard.module.css";
 
-const POLL_INTERVAL_MS = 5000;
-const PROGRESS_DURATION_MS = 5 * 60 * 1000; // 5 min estimated max
+const POLL_INTERVAL_MS = 2000;
 
-// ── Prompt enhancement for Sora ──────────────────────────────────────────────
-function enhancePromptForSora(userPrompt: string): string {
+function createIdempotencyKey() {
+  return globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// ── Prompt enhancement for cleaner motion ────────────────────────────────────
+function enhancePromptForVideo(userPrompt: string): string {
   const trimmed = userPrompt.trim();
   if (!trimmed) return trimmed;
 
@@ -62,8 +60,14 @@ function secondsCopy(item: GenerationRecord) {
   return `${item.requestedSeconds}s clip`;
 }
 
-function formatCopy(format: VideoFormat) {
-  return format === "portrait" ? "9:16" : "16:9";
+function estimateRenderMs(item: GenerationRecord) {
+  return item.estimatedRenderMs;
+}
+
+function formatRemainingTime(ms: number) {
+  if (ms <= 20_000) return "Finalizing";
+  const minutes = Math.max(1, Math.ceil(ms / 60_000));
+  return `About ${minutes}m left`;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -273,7 +277,7 @@ function HomePage({ onGetStarted }: { onGetStarted: () => void }) {
             </svg>
           </div>
           <h3 className={styles.featureTitle}>One image</h3>
-          <p className={styles.featureDesc}>Upload a single photo — portrait or landscape — and let Sora handle the motion.</p>
+          <p className={styles.featureDesc}>Upload a single photo and Craft picks the right framing and motion automatically.</p>
         </div>
 
         <div className={styles.featureCard}>
@@ -282,8 +286,8 @@ function HomePage({ onGetStarted }: { onGetStarted: () => void }) {
               <polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
             </svg>
           </div>
-          <h3 className={styles.featureTitle}>Up to 5 seconds</h3>
-          <p className={styles.featureDesc}>Choose your clip length from 1 to 5 seconds. Sora renders fluid, natural motion throughout.</p>
+          <h3 className={styles.featureTitle}>Model-aware lengths</h3>
+          <p className={styles.featureDesc}>Choose a clip length and Craft routes it to the fastest compatible renderer behind the scenes.</p>
         </div>
 
         <div className={styles.featureCard}>
@@ -293,7 +297,7 @@ function HomePage({ onGetStarted }: { onGetStarted: () => void }) {
             </svg>
           </div>
           <h3 className={styles.featureTitle}>Smart prompts</h3>
-          <p className={styles.featureDesc}>Your prompt is automatically optimized for Sora — resulting in sharper, cleaner video with no distortion.</p>
+          <p className={styles.featureDesc}>Your prompt is automatically optimized for sharper, cleaner video with less distortion.</p>
         </div>
 
         <div className={styles.featureCard}>
@@ -337,26 +341,35 @@ function CircularProgress({ pct }: { pct: number }) {
   );
 }
 
-// ── Animated % tracker (time-based, 0→95 over 5 min) ─────────────────────────
-function useTimedProgress(createdAt: string, active: boolean) {
+// ── Animated progress tracker with provider progress fallback ────────────────
+function useGenerationProgress(item: GenerationRecord, active: boolean) {
   const [pct, setPct] = useState(() => {
     if (!active) return 0;
-    const elapsed = Date.now() - new Date(createdAt).getTime();
-    return Math.min(Math.floor((elapsed / PROGRESS_DURATION_MS) * 95), 95);
+    if (item.progress !== null) return item.progress;
+    const elapsed = Date.now() - new Date(item.createdAt).getTime();
+    return Math.min(Math.floor((elapsed / estimateRenderMs(item)) * 92), 95);
   });
+  const [remainingMs, setRemainingMs] = useState(() =>
+    Math.max(estimateRenderMs(item) - (Date.now() - new Date(item.createdAt).getTime()), 0),
+  );
 
   useEffect(() => {
     if (!active) return;
     const tick = () => {
-      const elapsed = Date.now() - new Date(createdAt).getTime();
-      setPct(Math.min(Math.floor((elapsed / PROGRESS_DURATION_MS) * 95), 95));
+      const elapsed = Date.now() - new Date(item.createdAt).getTime();
+      const estimatedMs = estimateRenderMs(item);
+      setRemainingMs(Math.max(estimatedMs - elapsed, 0));
+      setPct(item.progress ?? Math.min(Math.floor((elapsed / estimatedMs) * 92), 95));
     };
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [active, createdAt]);
+  }, [active, item]);
 
-  return active ? pct : 100;
+  return {
+    pct: active ? pct : 100,
+    remainingCopy: active ? formatRemainingTime(remainingMs) : null,
+  };
 }
 
 // ── Single library card ───────────────────────────────────────────────────────
@@ -366,22 +379,24 @@ function GenerationCard({
   deletingId,
   onCancel,
   onDelete,
+  onContinue,
 }: {
   item: GenerationRecord;
   cancellingId: string | null;
   deletingId: string | null;
   onCancel: (id: string) => void;
   onDelete: (id: string) => void;
+  onContinue: (item: GenerationRecord) => void;
 }) {
   const isPending = item.status === "queued" || item.status === "in_progress";
-  const pct = useTimedProgress(item.createdAt, isPending);
+  const { pct, remainingCopy } = useGenerationProgress(item, isPending);
   const [expandedPrompt, setExpandedPrompt] = useState(false);
 
   return (
     <article key={item.id} data-testid={`generation-card-${item.id}`} className={styles.card}>
       <div
         className={styles.cardMedia}
-        style={{ aspectRatio: item.format === "portrait" ? "9/16" : "16/9" }}
+        style={{ aspectRatio: item.mediaAspectRatio }}
       >
         {item.videoUrl ? (
           <video
@@ -403,6 +418,9 @@ function GenerationCard({
         {isPending && (
           <div className={styles.progressOverlay}>
             <CircularProgress pct={pct} />
+            {remainingCopy && (
+              <p className={styles.progressCopy}>{remainingCopy}</p>
+            )}
             <button
               className={styles.stopBtn}
               onClick={() => onCancel(item.id)}
@@ -440,9 +458,6 @@ function GenerationCard({
             {statusLabel(item.status)}
           </span>
           <div className={styles.cardTopRight}>
-            {item.model && (
-              <span className={styles.modelBadge}>{item.model === "kling-3.0" ? "Kling 3.0" : "Kling 2.6"}</span>
-            )}
             <span className={styles.cardMeta}>{formatTimestamp(item.createdAt)}</span>
           </div>
         </div>
@@ -453,7 +468,7 @@ function GenerationCard({
             <p className={expandedPrompt ? styles.promptTextFull : styles.promptText}>
               {item.userPrompt}
             </p>
-            <p className={styles.promptLabel}>Enhanced for Kling</p>
+            <p className={styles.promptLabel}>Enhanced prompt</p>
             <p className={expandedPrompt ? styles.promptTextFull : styles.promptText}>
               {item.prompt}
             </p>
@@ -473,7 +488,6 @@ function GenerationCard({
         )}
 
         <div className={styles.cardSpec}>
-          <span>{formatCopy(item.format)}</span>
           <span>{secondsCopy(item)}</span>
         </div>
 
@@ -491,9 +505,18 @@ function GenerationCard({
         )}
 
         {item.videoUrl && (
-          <a className={styles.downloadLink} href={item.videoUrl} download>
-            Download MP4
-          </a>
+          <div className={styles.cardActions}>
+            <button
+              className={styles.secondaryAction}
+              type="button"
+              onClick={() => onContinue(item)}
+            >
+              Use as reference
+            </button>
+            <a className={styles.downloadLink} href={item.videoUrl} download>
+              Download MP4
+            </a>
+          </div>
         )}
       </div>
     </article>
@@ -518,6 +541,7 @@ function LibraryView({
   deletingId,
   onCancel,
   onDelete,
+  onContinue,
   onCreateFirst,
 }: {
   generations: GenerationRecord[];
@@ -526,6 +550,7 @@ function LibraryView({
   deletingId: string | null;
   onCancel: (id: string) => void;
   onDelete: (id: string) => void;
+  onContinue: (item: GenerationRecord) => void;
   onCreateFirst: () => void;
 }) {
   const [filter, setFilter] = useState<StatusFilter>("all");
@@ -598,6 +623,7 @@ function LibraryView({
                 deletingId={deletingId}
                 onCancel={onCancel}
                 onDelete={onDelete}
+                onContinue={onContinue}
               />
             ))}
           </div>
@@ -620,10 +646,7 @@ export default function Dashboard({
   );
   const [generations, setGenerations] = useState(() => sortGenerations(initialGenerations));
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState<VideoModelId>("kling-2.6");
-  const [format, setFormat] = useState<VideoFormat>("portrait");
   const [seconds, setSeconds] = useState(5);
-  const selectedModelInfo = VIDEO_MODEL_CATALOG.find(m => m.id === model)!;
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [cleanedDataUrl, setCleanedDataUrl] = useState<string | null>(null);
@@ -635,6 +658,8 @@ export default function Dashboard({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submitInFlightRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const pendingGenerationIds = useMemo(
     () => generations.filter((item) => item.status === "queued" || item.status === "in_progress").map((item) => item.id),
@@ -652,6 +677,10 @@ export default function Dashboard({
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [selectedImage]);
+
+  useEffect(() => {
+    idempotencyKeyRef.current = null;
+  }, [selectedImage, cleanedDataUrl, prompt, seconds]);
 
   function handleImageChange(file: File | null) {
     setSelectedImage(file);
@@ -675,6 +704,7 @@ export default function Dashboard({
         return;
       }
       setCleanedDataUrl(`data:image/png;base64,${payload.imageBase64}`);
+      idempotencyKeyRef.current = null;
     } catch {
       setCleanupMessage("Cleanup failed — please try again.");
     } finally {
@@ -689,10 +719,14 @@ export default function Dashboard({
     const refresh = async () => {
       const refreshed = await Promise.all(
         ids.map(async (id) => {
-          const res = await fetch(`/api/generations/${id}`, { cache: "no-store" });
-          if (!res.ok) return null;
-          const payload = (await res.json()) as GenerationItemResponse;
-          return payload.item;
+          try {
+            const res = await fetch(`/api/generations/${id}`, { cache: "no-store" });
+            if (!res.ok) return null;
+            const payload = (await res.json()) as GenerationItemResponse;
+            return payload.item;
+          } catch {
+            return null;
+          }
         }),
       );
       setGenerations((current) =>
@@ -709,13 +743,15 @@ export default function Dashboard({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitInFlightRef.current) return;
     if (!selectedImage) { setFormMessage("Select an image first."); return; }
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     setFormMessage(null);
 
     try {
-      const enhancedPrompt = enhancePromptForSora(prompt);
+      const enhancedPrompt = enhancePromptForVideo(prompt);
 
       // Use the cleaned image if the user ran cleanup, otherwise use original
       let imageToSubmit: File = selectedImage;
@@ -725,11 +761,12 @@ export default function Dashboard({
       }
 
       const formData = new FormData();
+      const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey();
+      idempotencyKeyRef.current = idempotencyKey;
       formData.set("image", imageToSubmit);
       formData.set("prompt", enhancedPrompt);
       formData.set("userPrompt", prompt.trim());
-      formData.set("model", model);
-      formData.set("format", format);
+      formData.set("idempotencyKey", idempotencyKey);
       formData.set("seconds", String(seconds));
 
       const response = await fetch("/api/generations", { method: "POST", body: formData });
@@ -757,12 +794,14 @@ export default function Dashboard({
       setCleanupMessage(null);
       setEditPrompt("");
       setPrompt("");
+      idempotencyKeyRef.current = null;
       if (fileInputRef.current) fileInputRef.current.value = "";
       setTab("library");
     } catch (error) {
       setFormMessage(error instanceof Error ? error.message : "Generation failed.");
     } finally {
       setIsSubmitting(false);
+      submitInFlightRef.current = false;
     }
   }
 
@@ -788,6 +827,31 @@ export default function Dashboard({
       }
     } finally {
       setCancellingId(null);
+    }
+  }
+
+  async function handleContinue(item: GenerationRecord) {
+    setFormMessage(null);
+    try {
+      const imageUrl = item.thumbnailUrl ?? item.sourceImageUrl;
+      const res = await fetch(imageUrl);
+      if (!res.ok) throw new Error("Reference image could not be loaded.");
+
+      const blob = await res.blob();
+      const extension = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg";
+      const file = new File([blob], `craft-reference-${item.id}.${extension}`, {
+        type: blob.type || "image/jpeg",
+      });
+
+      handleImageChange(file);
+      setPrompt("");
+      setTab("create");
+      window.requestAnimationFrame(() => {
+        fileInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    } catch (error) {
+      setTab("create");
+      setFormMessage(error instanceof Error ? error.message : "Reference image could not be loaded.");
     }
   }
 
@@ -839,7 +903,7 @@ export default function Dashboard({
           <div className={styles.createPage}>
             <div className={styles.createHeader}>
               <h1 className={styles.pageTitle}>Create</h1>
-              <p className={styles.pageSubtitle}>Upload an image and describe the motion.</p>
+              <p className={styles.pageSubtitle}>Upload an image and describe the clip.</p>
             </div>
 
             <form className={styles.formCard} onSubmit={handleSubmit}>
@@ -949,54 +1013,15 @@ export default function Dashboard({
                     placeholder="Describe the motion, camera movement, and mood — e.g. slow pan with soft lighting..."
                   />
                   <p className={styles.promptHint}>
-                    Your prompt will be automatically enhanced for the best Kling output — cleaner motion, no distortion.
+                    Auto optimized for clean motion, framing, and cost.
                   </p>
-                </div>
-
-                {/* Model selector */}
-                <div className={styles.modelSelector}>
-                  <span className={styles.fieldLabel}>Model</span>
-                  <div className={styles.modelCards}>
-                    {VIDEO_MODEL_CATALOG.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className={model === m.id ? styles.modelCardActive : styles.modelCard}
-                        onClick={() => {
-                          setModel(m.id);
-                          // Reset seconds if current duration not available in new model
-                          if (!m.durations.includes(seconds)) setSeconds(m.durations[0]);
-                        }}
-                      >
-                        <span className={styles.modelCardName}>{m.name}</span>
-                        <span className={styles.modelCardDesc}>{m.description}</span>
-                        <span className={styles.modelCardPrice}>${(m.pricePerSec * 5).toFixed(2)}/5s · ${(m.pricePerSec * 10).toFixed(2)}/10s</span>
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div className={styles.controlsRow}>
                   <div className={styles.controlGroup}>
-                    <span className={styles.fieldLabel}>Format</span>
-                    <div className={styles.segmentedControl}>
-                      {(["portrait", "landscape"] as const).map((option) => (
-                        <button
-                          key={option}
-                          type="button"
-                          className={option === format ? styles.segmentActive : styles.segment}
-                          onClick={() => setFormat(option)}
-                        >
-                          {option === "portrait" ? "Portrait 9:16" : "Landscape 16:9"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className={styles.controlGroup}>
-                    <span className={styles.fieldLabel}>Duration</span>
-                    <div className={styles.segmentedControl}>
-                      {selectedModelInfo.durations.map((value) => (
+                    <span className={styles.fieldLabel}>Clip length</span>
+                    <div className={styles.durationControl}>
+                      {[5, 10, 15].map((value) => (
                         <button
                           key={value}
                           type="button"
@@ -1042,6 +1067,7 @@ export default function Dashboard({
             deletingId={deletingId}
             onCancel={handleCancel}
             onDelete={handleDelete}
+            onContinue={handleContinue}
             onCreateFirst={() => setTab("create")}
           />
         )}

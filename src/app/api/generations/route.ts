@@ -23,6 +23,7 @@ export async function POST(request: Request) {
       image: payload.image,
       prompt: payload.prompt,
       userPrompt: payload.userPrompt ?? payload.prompt,
+      idempotencyKey: payload.idempotencyKey,
       model: payload.model,
       format: payload.format,
       requestedSeconds: payload.seconds,

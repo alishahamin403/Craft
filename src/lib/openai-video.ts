@@ -1,13 +1,12 @@
 /**
- * Video generation via Kling 2.6 Pro (fal.ai)
- * Replaces the previous OpenAI Sora implementation.
- * All external interfaces (VideoJobSnapshot, createVideoJob, retrieveVideoJob,
- * downloadVideoAsset) are preserved so no other files need to change.
+ * Video generation via Kling Pro models on fal.ai.
+ * The file name is kept for compatibility with older imports.
  */
 
 import sharp from "sharp";
 
 import { getFalAPIKey, getOpenAIAPIKey } from "@/lib/config";
+import { getVideoModelInfo } from "@/lib/types";
 import type { VideoFormat, VideoModelId } from "@/lib/types";
 
 const VIDEO_SIZE_BY_FORMAT: Record<VideoFormat, { width: number; height: number }> = {
@@ -23,6 +22,7 @@ export interface VideoJobSnapshot {
   progress: number | null;
   submittedSeconds: number | null;
   errorMessage: string | null;
+  videoUrl: string | null;
   size: string | null;
   expiresAt: string | null;
 }
@@ -55,10 +55,18 @@ function mapFalStatus(
 }
 
 // ── Duration mapping ──────────────────────────────────────────────────────────
-// Kling only supports 5s or 10s. Map user-requested seconds accordingly.
 
-function toKlingDuration(requestedSeconds: number): "5" | "10" {
-  return requestedSeconds <= 5 ? "5" : "10";
+function toFalDuration(model: VideoModelId, requestedSeconds: number) {
+  const modelInfo = getVideoModelInfo(model);
+  if (!modelInfo.durations.includes(requestedSeconds)) {
+    throw new OpenAIVideoRequestError(
+      `${modelInfo.name} does not support ${requestedSeconds}s clips.`,
+      400,
+      "unsupported_duration",
+    );
+  }
+
+  return String(requestedSeconds);
 }
 
 // ── Image → base64 data URI (accepted directly by Kling) ─────────────────────
@@ -114,7 +122,7 @@ async function outpaintToFormat(
   // Composite: blurred background + sharp centred portrait
   const imageCanvas = await sharp(bgBuffer)
     .composite([{ input: scaledImg, left: offsetX, top: offsetY }])
-    .jpeg({ quality: 92 })
+    .png()
     .toBuffer();
 
   // Mask: transparent (alpha=0) = "fill this area", opaque = "keep as-is"
@@ -136,7 +144,7 @@ async function outpaintToFormat(
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: getOpenAIAPIKey() });
 
-  const imageFile = new File([Uint8Array.from(imageCanvas)], "image.jpg", { type: "image/jpeg" });
+  const imageFile = new File([Uint8Array.from(imageCanvas)], "image.png", { type: "image/png" });
   const maskFile  = new File([Uint8Array.from(maskBuffer)],  "mask.png",  { type: "image/png"  });
 
   console.log(`[Outpaint] Calling gpt-image-1 (${size}) to extend ${format} frame…`);
@@ -199,14 +207,23 @@ async function buildImageDataUri(image: File, format: VideoFormat, prompt: strin
 
 // ── Submit job ────────────────────────────────────────────────────────────────
 
-const SUBMIT_URLS: Record<VideoModelId, string> = {
-  "kling-2.6": "https://queue.fal.run/fal-ai/kling-video/v2.6/pro/image-to-video",
-  "kling-3.0": "https://queue.fal.run/fal-ai/kling-video/v3/pro/image-to-video",
+const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
+const FAL_REQUEST_ENDPOINT = "fal-ai/kling-video";
+const FAL_ENDPOINTS: Record<VideoModelId, string> = {
+  "kling-2.6": "fal-ai/kling-video/v2.6/pro/image-to-video",
+  "kling-3.0": "fal-ai/kling-video/v3/pro/image-to-video",
 };
 
-// fal.ai status/result/cancel URLs use a shorter base (without version/variant path).
-// Confirmed from submit response: status_url, response_url, cancel_url all use this base.
-const FAL_REQUESTS_BASE = "https://queue.fal.run/fal-ai/kling-video/requests";
+function getFalSubmitUrl(model: VideoModelId) {
+  return `${FAL_QUEUE_BASE_URL}/${FAL_ENDPOINTS[model]}`;
+}
+
+function getFalRequestUrl(
+  requestId: string,
+  action?: "status" | "cancel",
+) {
+  return `${FAL_QUEUE_BASE_URL}/${FAL_REQUEST_ENDPOINT}/requests/${requestId}${action ? `/${action}` : ""}`;
+}
 
 interface FalSubmitResponse {
   request_id: string;
@@ -222,7 +239,7 @@ interface FalStatusResponse {
   logs?: { message: string }[];
 }
 
-interface FalResultResponse {
+interface FalResultPayload {
   video?: {
     url: string;
     content_type?: string;
@@ -230,6 +247,42 @@ interface FalResultResponse {
     file_size?: number;
   };
   error?: string | null;
+}
+
+interface FalResultResponse extends FalResultPayload {
+  response?: FalResultPayload;
+}
+
+function getFalResultPayload(result: FalResultResponse): FalResultPayload {
+  return result.response ?? result;
+}
+
+async function fetchFalResultPayload(
+  requestIdOrUrl: string,
+  options: { allowNotReady: boolean },
+) {
+  const resultUrl = requestIdOrUrl.startsWith("http")
+    ? requestIdOrUrl
+    : getFalRequestUrl(requestIdOrUrl);
+
+  const resultRes = await fetch(resultUrl, {
+    method: "GET",
+    headers: { Authorization: `Key ${getFalAPIKey()}` },
+    cache: "no-store",
+  });
+
+  if (!resultRes.ok) {
+    if (options.allowNotReady && (resultRes.status === 400 || resultRes.status === 404)) {
+      return null;
+    }
+
+    throw new OpenAIVideoRequestError(
+      `Failed to fetch Kling result (HTTP ${resultRes.status})`,
+      resultRes.status,
+    );
+  }
+
+  return getFalResultPayload((await resultRes.json()) as FalResultResponse);
 }
 
 export async function createVideoJob(input: {
@@ -240,8 +293,8 @@ export async function createVideoJob(input: {
   model: VideoModelId;
 }): Promise<VideoJobSnapshot> {
   const imageUrl = await buildImageDataUri(input.image, input.format, input.prompt);
-  const duration = toKlingDuration(input.requestedSeconds);
-  const submitUrl = SUBMIT_URLS[input.model] ?? SUBMIT_URLS["kling-2.6"];
+  const duration = toFalDuration(input.model, input.requestedSeconds);
+  const submitUrl = getFalSubmitUrl(input.model);
 
   const response = await fetch(submitUrl, {
     method: "POST",
@@ -285,6 +338,7 @@ export async function createVideoJob(input: {
     progress: null,
     submittedSeconds: Number(duration),
     errorMessage: null,
+    videoUrl: null,
     size: null,
     expiresAt: null,
   };
@@ -292,11 +346,8 @@ export async function createVideoJob(input: {
 
 // ── Retrieve / poll job ───────────────────────────────────────────────────────
 
-export async function retrieveVideoJob(
-  requestId: string,
-): Promise<VideoJobSnapshot> {
-  // fal.ai queue status: GET https://queue.fal.run/{model}/requests/{id}/status
-  const statusUrl = `${FAL_REQUESTS_BASE}/${requestId}/status`;
+export async function retrieveVideoJob(requestId: string): Promise<VideoJobSnapshot> {
+  const statusUrl = getFalRequestUrl(requestId, "status");
 
   const statusRes = await fetch(statusUrl, {
     method: "GET",
@@ -315,25 +366,24 @@ export async function retrieveVideoJob(
   const status = mapFalStatus(statusData.status);
 
   if (status === "completed") {
-    // Use response_url from status payload (guaranteed correct) or fall back to constructed URL
-    const resultUrl = statusData.response_url ?? `${FAL_REQUESTS_BASE}/${requestId}`;
-
-    const resultRes = await fetch(resultUrl, {
-      method: "GET",
-      headers: { Authorization: `Key ${getFalAPIKey()}` },
-      cache: "no-store",
-    });
-
-    if (!resultRes.ok) {
-      throw new OpenAIVideoRequestError(
-        `Kling job completed but result fetch failed (HTTP ${resultRes.status})`,
-        resultRes.status,
-      );
+    if (statusData.error) {
+      return {
+        id: requestId,
+        status: "failed",
+        progress: null,
+        submittedSeconds: null,
+        errorMessage: statusData.error,
+        videoUrl: null,
+        size: null,
+        expiresAt: null,
+      };
     }
 
-    const result = (await resultRes.json()) as FalResultResponse;
+    const result = await fetchFalResultPayload(statusData.response_url ?? requestId, {
+      allowNotReady: false,
+    });
 
-    if (!result.video?.url) {
+    if (!result?.video?.url) {
       throw new OpenAIVideoRequestError(
         `Kling job completed but response contained no video URL. Raw: ${JSON.stringify(result)}`,
         200,
@@ -346,6 +396,24 @@ export async function retrieveVideoJob(
       progress: 100,
       submittedSeconds: null,
       errorMessage: null,
+      videoUrl: result.video.url,
+      size: null,
+      expiresAt: null,
+    };
+  }
+
+  const readyResult = await fetchFalResultPayload(statusData.response_url ?? requestId, {
+    allowNotReady: true,
+  });
+
+  if (readyResult?.video?.url) {
+    return {
+      id: requestId,
+      status: "completed",
+      progress: 100,
+      submittedSeconds: null,
+      errorMessage: null,
+      videoUrl: readyResult.video.url,
       size: null,
       expiresAt: null,
     };
@@ -358,6 +426,7 @@ export async function retrieveVideoJob(
       progress: null,
       submittedSeconds: null,
       errorMessage: statusData.error ?? "Kling video generation failed.",
+      videoUrl: null,
       size: null,
       expiresAt: null,
     };
@@ -373,6 +442,7 @@ export async function retrieveVideoJob(
     progress,
     submittedSeconds: null,
     errorMessage: null,
+    videoUrl: null,
     size: null,
     expiresAt: null,
   };
@@ -392,22 +462,8 @@ export async function downloadVideoAsset(
     throw new Error("Thumbnail not available for Kling; use source image instead.");
   }
 
-  // GET the result — same URL used in retrieveVideoJob when status=COMPLETED
-  const resultRes = await fetch(`${FAL_REQUESTS_BASE}/${requestId}`, {
-    method: "GET",
-    headers: { Authorization: `Key ${getFalAPIKey()}` },
-    cache: "no-store",
-  });
-
-  if (!resultRes.ok) {
-    throw new OpenAIVideoRequestError(
-      "Failed to fetch Kling result.",
-      resultRes.status,
-    );
-  }
-
-  const result = (await resultRes.json()) as FalResultResponse;
-  const videoUrl = result.video?.url;
+  const result = await fetchFalResultPayload(requestId, { allowNotReady: false });
+  const videoUrl = result?.video?.url;
 
   if (!videoUrl) {
     throw new Error("No video URL in Kling result.");
@@ -428,7 +484,7 @@ export async function downloadVideoAsset(
 // ── Cancel job ────────────────────────────────────────────────────────────────
 
 export async function cancelVideoJob(requestId: string): Promise<void> {
-  await fetch(`${FAL_REQUESTS_BASE}/${requestId}/cancel`, {
+  await fetch(getFalRequestUrl(requestId, "cancel"), {
     method: "PUT",
     headers: { Authorization: `Key ${getFalAPIKey()}` },
     cache: "no-store",

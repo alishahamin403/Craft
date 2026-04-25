@@ -36,6 +36,7 @@ function createDatabase() {
   database.exec(`
     CREATE TABLE IF NOT EXISTS generations (
       id TEXT PRIMARY KEY,
+      idempotencyKey TEXT,
       prompt TEXT NOT NULL,
       status TEXT NOT NULL,
       format TEXT NOT NULL,
@@ -55,6 +56,11 @@ function createDatabase() {
       ON generations(createdAt DESC);
   `);
 
+  ensureDatabaseSchema(database);
+  return database;
+}
+
+function ensureDatabaseSchema(database: Database.Database) {
   // Migrations: add columns that may not exist in older DBs
   const cols = (database.pragma("table_info(generations)") as { name: string }[]).map(c => c.name);
   if (!cols.includes("userPrompt")) {
@@ -63,13 +69,21 @@ function createDatabase() {
   if (!cols.includes("model")) {
     database.exec("ALTER TABLE generations ADD COLUMN model TEXT;");
   }
-
-  return database;
+  if (!cols.includes("idempotencyKey")) {
+    database.exec("ALTER TABLE generations ADD COLUMN idempotencyKey TEXT;");
+  }
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS generations_idempotencyKey_idx
+      ON generations(idempotencyKey)
+      WHERE idempotencyKey IS NOT NULL;
+  `);
 }
 
 function getDatabase() {
   if (!globalThis.__craftDb) {
     globalThis.__craftDb = createDatabase();
+  } else {
+    ensureDatabaseSchema(globalThis.__craftDb);
   }
 
   return globalThis.__craftDb;
@@ -87,15 +101,21 @@ export function getGenerationById(id: string) {
     .get(id) as GenerationRow | undefined;
 }
 
+export function getGenerationByIdempotencyKey(idempotencyKey: string) {
+  return getDatabase()
+    .prepare("SELECT * FROM generations WHERE idempotencyKey = ?")
+    .get(idempotencyKey) as GenerationRow | undefined;
+}
+
 export function insertGeneration(row: GenerationRow) {
   getDatabase()
     .prepare(`
       INSERT INTO generations (
-        id, prompt, userPrompt, model, status, format, requestedSeconds, submittedSeconds,
+        id, idempotencyKey, prompt, userPrompt, model, status, format, requestedSeconds, submittedSeconds,
         sourceImagePath, videoPath, thumbnailPath, openaiVideoId,
         errorMessage, ownerId, createdAt, updatedAt
       ) VALUES (
-        @id, @prompt, @userPrompt, @model, @status, @format, @requestedSeconds, @submittedSeconds,
+        @id, @idempotencyKey, @prompt, @userPrompt, @model, @status, @format, @requestedSeconds, @submittedSeconds,
         @sourceImagePath, @videoPath, @thumbnailPath, @openaiVideoId,
         @errorMessage, @ownerId, @createdAt, @updatedAt
       )

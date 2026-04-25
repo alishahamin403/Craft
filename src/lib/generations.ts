@@ -9,6 +9,7 @@ import {
 } from "@/lib/file-storage";
 import {
   deleteGeneration,
+  getGenerationByIdempotencyKey,
   getGenerationById,
   insertGeneration,
   listGenerations,
@@ -20,18 +21,51 @@ import {
   downloadVideoAsset,
   retrieveVideoJob,
 } from "@/lib/openai-video";
+import { estimateProgress, estimateRenderMs, selectVideoRoute } from "@/lib/video-routing";
 import type { GenerationRecord, GenerationRow, VideoFormat, VideoModelId } from "@/lib/types";
+
+function getPublicErrorMessage(errorMessage: string | null) {
+  if (!errorMessage) return null;
+
+  if (
+    /Failed to retrieve job status \(HTTP 405\)/i.test(errorMessage) ||
+    /Method Not Allowed/i.test(errorMessage)
+  ) {
+    return "Generation status could not be checked. Please retry this clip.";
+  }
+
+  return errorMessage;
+}
 
 function toGenerationRecord(
   row: GenerationRow,
   progress: number | null = null,
 ): GenerationRecord {
+  const effectiveSeconds = row.submittedSeconds ?? row.requestedSeconds;
+
   return {
-    ...row,
+    id: row.id,
+    prompt: row.prompt,
+    userPrompt: row.userPrompt,
+    status: row.status,
+    requestedSeconds: row.requestedSeconds,
+    submittedSeconds: row.submittedSeconds,
+    errorMessage: getPublicErrorMessage(row.errorMessage),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
     sourceImageUrl: buildMediaUrl(row.sourceImagePath)!,
     videoUrl: buildMediaUrl(row.videoPath),
     thumbnailUrl: buildMediaUrl(row.thumbnailPath),
-    progress,
+    estimatedRenderMs: estimateRenderMs(row.model, effectiveSeconds),
+    mediaAspectRatio: row.format === "portrait" ? "9/16" : "16/9",
+    progress: estimateProgress({
+      createdAt: row.createdAt,
+      status: row.status,
+      model: row.model,
+      requestedSeconds: row.requestedSeconds,
+      submittedSeconds: row.submittedSeconds,
+      providerProgress: progress,
+    }),
   };
 }
 
@@ -39,7 +73,25 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected error.";
 }
 
-async function finalizeCompletedGeneration(row: GenerationRow, videoId: string) {
+function isIdempotencyConstraintError(error: unknown) {
+  return error instanceof Error &&
+    /UNIQUE constraint failed: generations\.idempotencyKey/i.test(error.message);
+}
+
+async function finalizeCompletedGeneration(
+  row: GenerationRow,
+  videoId: string,
+  remoteVideoUrl: string | null = null,
+) {
+  if (remoteVideoUrl) {
+    return updateGeneration(row.id, {
+      status: "completed",
+      videoPath: remoteVideoUrl,
+      thumbnailPath: row.thumbnailPath,
+      errorMessage: null,
+    });
+  }
+
   const videoAsset = await downloadVideoAsset(videoId, "video");
   const videoPath = await saveGeneratedAsset(
     "videos",
@@ -107,34 +159,65 @@ export async function createGenerationEntry(input: {
   image: File;
   prompt: string;
   userPrompt: string;
-  model: VideoModelId;
-  format: VideoFormat;
+  idempotencyKey?: string;
+  model?: VideoModelId;
+  format?: VideoFormat;
   requestedSeconds: number;
 }) {
-  await ensureStorageDirectories();
+  if (input.idempotencyKey) {
+    const existing = getGenerationByIdempotencyKey(input.idempotencyKey);
+    if (existing) {
+      return toGenerationRecord(existing);
+    }
+  }
 
-  const now = new Date().toISOString();
-  const row = insertGeneration({
-    id: randomUUID(),
-    prompt: input.prompt,
-    userPrompt: input.userPrompt,
-    model: input.model,
-    status: "queued",
-    format: input.format,
+  await ensureStorageDirectories();
+  const route = await selectVideoRoute({
+    image: input.image,
+    prompt: input.userPrompt || input.prompt,
     requestedSeconds: input.requestedSeconds,
-    submittedSeconds: null,
-    sourceImagePath: await saveUploadedImage(input.image),
-    videoPath: null,
-    thumbnailPath: null,
-    openaiVideoId: null,
-    errorMessage: null,
-    ownerId: null,
-    createdAt: now,
-    updatedAt: now,
+    requestedFormat: input.format ?? null,
+    requestedModel: input.model ?? null,
   });
 
+  const now = new Date().toISOString();
+  let row: GenerationRow;
   try {
-    const job = await createVideoJob({ ...input, model: input.model });
+    row = insertGeneration({
+      id: randomUUID(),
+      idempotencyKey: input.idempotencyKey ?? null,
+      prompt: input.prompt,
+      userPrompt: input.userPrompt,
+      model: route.model,
+      status: "queued",
+      format: route.format,
+      requestedSeconds: route.requestedSeconds,
+      submittedSeconds: null,
+      sourceImagePath: await saveUploadedImage(input.image),
+      videoPath: null,
+      thumbnailPath: null,
+      openaiVideoId: null,
+      errorMessage: null,
+      ownerId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    if (input.idempotencyKey && isIdempotencyConstraintError(error)) {
+      const existing = getGenerationByIdempotencyKey(input.idempotencyKey);
+      if (existing) return toGenerationRecord(existing);
+    }
+
+    throw error;
+  }
+
+  try {
+    const job = await createVideoJob({
+      ...input,
+      model: route.model,
+      format: route.format,
+      requestedSeconds: route.requestedSeconds,
+    });
 
     let updated = updateGeneration(row.id, {
       status: job.status,
@@ -144,7 +227,7 @@ export async function createGenerationEntry(input: {
     });
 
     if (job.status === "completed") {
-      updated = await finalizeCompletedGeneration(updated, job.id);
+      updated = await finalizeCompletedGeneration(updated, job.id, job.videoUrl);
     }
 
     if (job.status === "failed") {
@@ -165,7 +248,7 @@ export async function createGenerationEntry(input: {
   }
 }
 
-const JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_JOB_TIMEOUT_MS = 8 * 60 * 1000;
 
 export async function refreshGenerationRecord(id: string) {
   const row = getGenerationById(id);
@@ -183,11 +266,15 @@ export async function refreshGenerationRecord(id: string) {
 
   // Auto-cancel jobs that have been running too long
   const age = Date.now() - new Date(row.createdAt).getTime();
-  if (age > JOB_TIMEOUT_MS) {
+  const timeoutMs = Math.min(
+    estimateRenderMs(row.model, row.submittedSeconds ?? row.requestedSeconds) + 3 * 60 * 1000,
+    MAX_JOB_TIMEOUT_MS,
+  );
+  if (age > timeoutMs) {
     try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
     const timedOut = updateGeneration(id, {
       status: "failed",
-      errorMessage: "Generation timed out after 10 minutes and was automatically cancelled.",
+      errorMessage: "Generation took longer than expected and was automatically stopped.",
     });
     return toGenerationRecord(timedOut);
   }
@@ -196,7 +283,7 @@ export async function refreshGenerationRecord(id: string) {
     const job = await retrieveVideoJob(row.openaiVideoId);
 
     if (job.status === "completed") {
-      const completedRow = await finalizeCompletedGeneration(row, row.openaiVideoId);
+      const completedRow = await finalizeCompletedGeneration(row, row.openaiVideoId, job.videoUrl);
       return toGenerationRecord(completedRow, job.progress);
     }
 
@@ -204,7 +291,7 @@ export async function refreshGenerationRecord(id: string) {
       const failedRow = updateGeneration(id, {
         status: "failed",
         submittedSeconds: job.submittedSeconds,
-        errorMessage: job.errorMessage ?? "OpenAI video generation failed.",
+        errorMessage: job.errorMessage ?? "Video generation failed.",
       });
 
       return toGenerationRecord(failedRow);

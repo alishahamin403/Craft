@@ -8,7 +8,6 @@ import {
 function buildValidFormData() {
   const formData = new FormData();
   formData.set("prompt", "Create a slow, elegant fabric reveal.");
-  formData.set("format", "portrait");
   formData.set("seconds", "5");
   formData.set(
     "image",
@@ -20,10 +19,14 @@ function buildValidFormData() {
 
 describe("parseCreateGenerationFormData", () => {
   it("accepts a valid image prompt payload", () => {
-    const payload = parseCreateGenerationFormData(buildValidFormData());
+    const formData = buildValidFormData();
+    formData.set("idempotencyKey", "submit-key-123");
+    const payload = parseCreateGenerationFormData(formData);
 
     expect(payload.prompt).toContain("fabric reveal");
-    expect(payload.format).toBe("portrait");
+    expect(payload.idempotencyKey).toBe("submit-key-123");
+    expect(payload.model).toBeUndefined();
+    expect(payload.format).toBeUndefined();
     expect(payload.seconds).toBe(5);
     expect(payload.image.name).toBe("lookbook.jpg");
   });
@@ -40,12 +43,26 @@ describe("parseCreateGenerationFormData", () => {
     );
   });
 
-  it("rejects durations above ten seconds", () => {
+  it("rejects durations unsupported by the selected model", () => {
     const formData = buildValidFormData();
-    formData.set("seconds", "11");
+    formData.set("model", "kling-2.6");
+    formData.set("format", "portrait");
+    formData.set("seconds", "12");
 
     expect(() => parseCreateGenerationFormData(formData)).toThrow(
-      "Seconds must be between 1 and 10.",
+      "Kling 2.6 Pro supports 5s or 10s clips.",
     );
+  });
+
+  it("accepts longer durations for Kling 3.0", () => {
+    const formData = buildValidFormData();
+    formData.set("model", "kling-3.0");
+    formData.set("format", "portrait");
+    formData.set("seconds", "12");
+
+    const payload = parseCreateGenerationFormData(formData);
+
+    expect(payload.model).toBe("kling-3.0");
+    expect(payload.seconds).toBe(12);
   });
 });

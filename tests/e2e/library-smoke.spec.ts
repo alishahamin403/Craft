@@ -4,6 +4,7 @@ test("submits an image, shows a pending card, then renders a playable library ca
   page,
 }) => {
   let generationPolls = 0;
+  let createSubmissions = 0;
 
   await page.route("**/api/generations", async (route) => {
     if (route.request().method() !== "POST") {
@@ -11,6 +12,7 @@ test("submits an image, shows a pending card, then renders a playable library ca
       return;
     }
 
+    createSubmissions += 1;
     await route.fulfill({
       status: 201,
       contentType: "application/json",
@@ -19,22 +21,20 @@ test("submits an image, shows a pending card, then renders a playable library ca
           id: "smoke-1",
           prompt:
             "Create a boutique-style motion reveal with soft camera drift.",
+          userPrompt:
+            "Create a boutique-style motion reveal with soft camera drift.",
           status: "queued",
-          format: "portrait",
           requestedSeconds: 5,
           submittedSeconds: 4,
-          sourceImagePath: "uploads/smoke-1.jpg",
-          videoPath: null,
-          thumbnailPath: null,
-          openaiVideoId: "video_smoke_1",
           errorMessage: null,
-          ownerId: null,
           createdAt: "2026-04-08T13:00:00.000Z",
           updatedAt: "2026-04-08T13:00:00.000Z",
           sourceImageUrl: "/media/uploads/smoke-1.jpg",
           videoUrl: null,
           thumbnailUrl: null,
           progress: 12,
+          estimatedRenderMs: 115000,
+          mediaAspectRatio: "9/16",
         },
       }),
     });
@@ -51,17 +51,12 @@ test("submits an image, shows a pending card, then renders a playable library ca
           id: "smoke-1",
           prompt:
             "Create a boutique-style motion reveal with soft camera drift.",
+          userPrompt:
+            "Create a boutique-style motion reveal with soft camera drift.",
           status: generationPolls === 1 ? "in_progress" : "completed",
-          format: "portrait",
           requestedSeconds: 5,
           submittedSeconds: 4,
-          sourceImagePath: "uploads/smoke-1.jpg",
-          videoPath: generationPolls === 1 ? null : "videos/smoke-1.mp4",
-          thumbnailPath:
-            generationPolls === 1 ? null : "thumbnails/smoke-1.webp",
-          openaiVideoId: "video_smoke_1",
           errorMessage: null,
-          ownerId: null,
           createdAt: "2026-04-08T13:00:00.000Z",
           updatedAt: "2026-04-08T13:00:10.000Z",
           sourceImageUrl: "/media/uploads/smoke-1.jpg",
@@ -69,12 +64,20 @@ test("submits an image, shows a pending card, then renders a playable library ca
           thumbnailUrl:
             generationPolls === 1 ? null : "/media/thumbnails/smoke-1.webp",
           progress: generationPolls === 1 ? 54 : 100,
+          estimatedRenderMs: 115000,
+          mediaAspectRatio: "9/16",
         },
       }),
     });
   });
 
   await page.goto("/");
+
+  await expect(page.getByText("Kling", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Portrait 9:16", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "5s", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "10s", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "15s", exact: true })).toBeVisible();
 
   await page.getByLabel("Reference image").setInputFiles({
     name: "lookbook.jpg",
@@ -86,7 +89,8 @@ test("submits an image, shows a pending card, then renders a playable library ca
     .getByLabel("Motion prompt")
     .fill("Create a boutique-style motion reveal with soft camera drift.");
 
-  await page.getByRole("button", { name: "Generate video" }).click();
+  await page.getByRole("button", { name: "Generate video" }).dblclick();
+  expect(createSubmissions).toBe(1);
 
   await expect(page.getByTestId("generation-card-smoke-1")).toContainText(
     /Queued|Rendering/,

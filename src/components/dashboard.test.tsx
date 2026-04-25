@@ -11,21 +11,17 @@ const failedGeneration: GenerationRecord = {
   prompt: "Turn the outfit shot into a premium reveal.",
   userPrompt: null,
   status: "failed",
-  format: "portrait",
   requestedSeconds: 5,
   submittedSeconds: 4,
-  sourceImagePath: "uploads/failed-1.jpg",
-  videoPath: null,
-  thumbnailPath: null,
-  openaiVideoId: "video_failed_1",
-  errorMessage: "OpenAI video generation failed.",
-  ownerId: null,
+  errorMessage: "Video generation failed.",
   createdAt: "2026-04-08T13:00:00.000Z",
   updatedAt: "2026-04-08T13:00:00.000Z",
   sourceImageUrl: "/media/uploads/failed-1.jpg",
   videoUrl: null,
   thumbnailUrl: null,
   progress: null,
+  estimatedRenderMs: 115000,
+  mediaAspectRatio: "9/16",
 };
 
 describe("Dashboard", () => {
@@ -38,7 +34,7 @@ describe("Dashboard", () => {
     render(<Dashboard initialGenerations={[failedGeneration]} />);
 
     expect(
-      screen.getByText("OpenAI video generation failed."),
+      screen.getByText("Video generation failed."),
     ).toBeInTheDocument();
     expect(
       screen.getByAltText(

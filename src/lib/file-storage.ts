@@ -97,6 +97,10 @@ export function buildMediaUrl(relativePath: string | null) {
     return null;
   }
 
+  if (/^https?:\/\//i.test(relativePath)) {
+    return relativePath;
+  }
+
   return `/media/${normalizeRelativePath(relativePath)
     .split("/")
     .map((segment) => encodeURIComponent(segment))

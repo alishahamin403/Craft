@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { VIDEO_FORMATS, VIDEO_MODELS } from "@/lib/types";
+import { getVideoModelInfo, VIDEO_FORMATS, VIDEO_MODELS } from "@/lib/types";
 
 export const ACCEPTED_IMAGE_TYPES = [
   "image/jpeg",
@@ -21,23 +21,47 @@ const createGenerationSchema = z.object({
     .max(1200)
     .optional()
     .default(""),
-  model: z.enum(VIDEO_MODELS).default("kling-2.6"),
-  format: z.enum(VIDEO_FORMATS),
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(8)
+    .max(128)
+    .optional(),
+  model: z.enum(VIDEO_MODELS).optional(),
+  format: z.enum(VIDEO_FORMATS).optional(),
   seconds: z.coerce
     .number()
     .int("Seconds must be a whole number.")
-    .min(1, "Seconds must be at least 1.")
-    .max(10, "Seconds must be 10 or fewer."),
+    .min(3, "Seconds must be at least 3.")
+    .max(15, "Seconds must be 15 or fewer."),
 });
 
 export class RequestValidationError extends Error {}
+
+function formatDurationOptions(durations: readonly number[]) {
+  if (durations.length === 0) return "no durations";
+  if (durations.length === 1) return `${durations[0]}s`;
+
+  const isContiguous = durations.every((value, index) =>
+    index === 0 || value === durations[index - 1] + 1,
+  );
+
+  if (isContiguous) {
+    return `${durations[0]}s through ${durations[durations.length - 1]}s`;
+  }
+
+  return `${durations.slice(0, -1).map((value) => `${value}s`).join(", ")} or ${
+    durations[durations.length - 1]
+  }s`;
+}
 
 export function parseCreateGenerationFormData(formData: FormData) {
   const parsed = createGenerationSchema.safeParse({
     prompt: formData.get("prompt"),
     userPrompt: formData.get("userPrompt") ?? undefined,
+    idempotencyKey: formData.get("idempotencyKey") ?? undefined,
     model: formData.get("model") ?? undefined,
-    format: formData.get("format"),
+    format: formData.get("format") ?? undefined,
     seconds: formData.get("seconds"),
   });
 
@@ -45,6 +69,21 @@ export function parseCreateGenerationFormData(formData: FormData) {
     throw new RequestValidationError(
       parsed.error.issues[0]?.message ?? "The request is invalid.",
     );
+  }
+
+  if (parsed.data.model && parsed.data.format) {
+    const modelInfo = getVideoModelInfo(parsed.data.model);
+    if (!modelInfo.formats.includes(parsed.data.format)) {
+      throw new RequestValidationError(
+        `${modelInfo.name} does not support the selected format.`,
+      );
+    }
+
+    if (!modelInfo.durations.includes(parsed.data.seconds)) {
+      throw new RequestValidationError(
+        `${modelInfo.name} supports ${formatDurationOptions(modelInfo.durations)} clips.`,
+      );
+    }
   }
 
   const image = formData.get("image");

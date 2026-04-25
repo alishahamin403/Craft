@@ -86,6 +86,7 @@ export async function createVeoJob(input: {
     progress: null,
     submittedSeconds: duration,
     errorMessage: null,
+    videoUrl: null,
     size: null,
     expiresAt: null,
   };
@@ -102,6 +103,7 @@ export async function retrieveVeoJob(operationName: string): Promise<VideoJobSna
       progress: 100,
       submittedSeconds: null,
       errorMessage: null,
+      videoUrl: null,
       size: null,
       expiresAt: null,
     };
@@ -142,6 +144,7 @@ export async function retrieveVeoJob(operationName: string): Promise<VideoJobSna
         progress: null,
         submittedSeconds: null,
         errorMessage: "Veo 2 completed but returned no video data.",
+        videoUrl: null,
         size: null,
         expiresAt: null,
       };
@@ -156,6 +159,7 @@ export async function retrieveVeoJob(operationName: string): Promise<VideoJobSna
       progress: 100,
       submittedSeconds: null,
       errorMessage: null,
+      videoUrl: null,
       size: null,
       expiresAt: null,
     };
@@ -168,6 +172,7 @@ export async function retrieveVeoJob(operationName: string): Promise<VideoJobSna
       progress: null,
       submittedSeconds: null,
       errorMessage: "Veo 2 generation failed — no videos in response.",
+      videoUrl: null,
       size: null,
       expiresAt: null,
     };
@@ -180,6 +185,7 @@ export async function retrieveVeoJob(operationName: string): Promise<VideoJobSna
     progress: null,
     submittedSeconds: null,
     errorMessage: null,
+    videoUrl: null,
     size: null,
     expiresAt: null,
   };
