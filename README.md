@@ -37,7 +37,7 @@ http://localhost:3000/api/auth/google/callback
 
 For production, add the same callback path on your deployed domain.
 
-Before using Supabase, run the SQL in `supabase/migrations/0001_craft.sql` from the Supabase SQL Editor. It creates private app tables and the `craft-media` private storage bucket.
+Before using Supabase, run the SQL files in `supabase/migrations/` from the Supabase SQL Editor in filename order. They create the private app tables, the `craft-media` private storage bucket, and keep database constraints aligned with supported video models.
 
 ## Getting Started
 
