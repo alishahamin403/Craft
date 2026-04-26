@@ -2,6 +2,7 @@ import sharp from "sharp";
 
 import {
   getVideoModelInfo,
+  getVideoModelsForQuality,
   getVideoQualityInfo,
   VIDEO_MODEL_CATALOG,
   type VideoFormat,
@@ -35,6 +36,16 @@ const QUALITY_INTENT =
   /\b(premium|luxury|fashion|product|brand|model|person|face|clothing|cinematic|commercial|landing|hero|website|smooth|natural|realistic)\b/i;
 const SPEED_INTENT =
   /\b(fast|quick|draft|test|preview|cheap|budget|simple)\b/i;
+const AUDIO_INTENT =
+  /\b(audio|sound|voice|dialogue|talk|talking|say|says|speak|speaks|lipsync|lip sync|music|sfx)\b/i;
+const PRODUCT_INTENT =
+  /\b(product|perfume|fashion|outfit|clothing|dress|fabric|model|lookbook|brand|commercial|ad)\b/i;
+const MOTION_INTENT =
+  /\b(run|running|dance|dancing|fight|jump|water|waves|physics|impact|collision|sports|action)\b/i;
+const SOCIAL_INTENT =
+  /\b(tiktok|reel|shorts|instagram|social|ugc|quick post)\b/i;
+const PREMIUM_INTENT =
+  /\b(4k|homepage|hero|premium|luxury|campaign|cinematic|film|commercial|high[- ]end)\b/i;
 
 export async function analyzeImage(image: File): Promise<ImageAnalysis> {
   const bytes = Buffer.from(await image.arrayBuffer());
@@ -83,25 +94,62 @@ function routeScore(input: {
   const estimatedCost = info.pricePerSec * input.requestedSeconds;
   const qualityIntent = QUALITY_INTENT.test(input.prompt);
   const speedIntent = SPEED_INTENT.test(input.prompt);
+  const audioIntent = AUDIO_INTENT.test(input.prompt);
+  const productIntent = PRODUCT_INTENT.test(input.prompt);
+  const motionIntent = MOTION_INTENT.test(input.prompt);
+  const socialIntent = SOCIAL_INTENT.test(input.prompt);
+  const premiumIntent = PREMIUM_INTENT.test(input.prompt);
   const imageFormatMismatch =
     (input.image.aspectRatio >= 1.1 && input.format === "portrait") ||
     (input.image.aspectRatio < 0.9 && input.format === "landscape");
 
-  let score = input.model === "kling-3.0" ? 0.86 : 0.78;
+  const baseScores: Record<VideoModelId, number> = {
+    "minimax-hailuo-fast": 0.72,
+    "pixverse-v6": 0.78,
+    "kling-2.6": 0.76,
+    "ltx-2": 0.8,
+    "wan-2.7": 0.86,
+    "sora-2": 0.88,
+    "veo-3.1-fast": 0.9,
+    "kling-3.0": 0.87,
+    "veo-3.1": 0.94,
+    "kling-v3-4k": 0.96,
+  };
 
-  if (input.model === "kling-3.0" && qualityIntent) score += 0.18;
-  if (input.model === "kling-3.0" && input.requestedSeconds > 10) score += 0.2;
+  let score = baseScores[input.model];
+
+  if (speedIntent && input.model === "minimax-hailuo-fast") score += 0.24;
+  if (speedIntent && input.model === "pixverse-v6") score += 0.12;
+  if (speedIntent && input.model === "veo-3.1-fast") score += 0.1;
+  if (productIntent && input.model === "pixverse-v6") score += 0.16;
+  if (productIntent && input.model === "kling-3.0") score += 0.18;
+  if (productIntent && input.model === "wan-2.7") score += 0.12;
+  if (audioIntent && input.model === "sora-2") score += 0.32;
+  if (audioIntent && input.model === "veo-3.1") score += 0.22;
+  if (audioIntent && input.model === "veo-3.1-fast") score += 0.16;
+  if (audioIntent && input.model === "ltx-2") score += 0.08;
+  if (motionIntent && input.model === "wan-2.7") score += 0.2;
+  if (motionIntent && input.model === "veo-3.1") score += 0.12;
+  if (socialIntent && input.model === "pixverse-v6") score += 0.18;
+  if (premiumIntent && input.model === "kling-v3-4k") score += 0.22;
+  if (premiumIntent && input.model === "veo-3.1") score += 0.2;
+  if (input.model === "kling-3.0" && qualityIntent) score += 0.14;
+  if (input.model === "kling-3.0" && input.requestedSeconds > 10) score += 0.16;
   if (input.model === "kling-3.0" && imageFormatMismatch) score += 0.08;
-  if (input.model === "kling-2.6" && speedIntent) score += 0.12;
-  if (input.model === "kling-2.6" && !qualityIntent) score += 0.08;
+  if (input.model === "kling-2.6" && !qualityIntent) score += 0.06;
+  if (input.requestedSeconds > 10 && input.model === "pixverse-v6") score += 0.08;
+  if (input.requestedSeconds > 10 && input.model === "wan-2.7") score += 0.1;
+  if (input.requestedSeconds > 10 && input.model === "kling-v3-4k") score += 0.08;
 
   return score - estimatedCost * 0.18;
 }
 
 export function estimateRenderMs(model: VideoModelId | null, seconds: number | null) {
   const duration = seconds ?? DEFAULT_SECONDS;
-  const baseMs = model === "kling-v3-4k" ? 150_000 : model === "kling-3.0" ? 95_000 : 75_000;
-  const perSecondMs = model === "kling-v3-4k" ? 22_000 : model === "kling-3.0" ? 13_000 : 10_000;
+  const isHigh = model === "kling-v3-4k" || model === "veo-3.1";
+  const isFast = model === "minimax-hailuo-fast" || model === "pixverse-v6";
+  const baseMs = isHigh ? 150_000 : model === "kling-3.0" || model === "wan-2.7" ? 95_000 : isFast ? 55_000 : 80_000;
+  const perSecondMs = isHigh ? 22_000 : model === "kling-3.0" || model === "wan-2.7" ? 13_000 : isFast ? 8_000 : 11_000;
 
   return Math.min(baseMs + duration * perSecondMs, 12 * 60 * 1000);
 }
@@ -158,14 +206,30 @@ export async function selectVideoRoute(input: {
   }
 
   if (input.requestedQuality) {
-    const qualityInfo = getVideoQualityInfo(input.requestedQuality);
-    if (modelSupports(qualityInfo.model, format, requestedSeconds)) {
+    const candidates = getVideoModelsForQuality(input.requestedQuality)
+      .filter((model) =>
+        model.formats.includes(format) && model.durations.includes(requestedSeconds),
+      )
+      .map((model) => ({
+        model: model.id,
+        score: routeScore({
+          model: model.id,
+          prompt: input.prompt,
+          image,
+          format,
+          requestedSeconds,
+        }),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    const model = candidates[0]?.model;
+    if (model) {
       return {
-        model: qualityInfo.model,
-        quality: qualityInfo.id,
+        model,
+        quality: getVideoQualityInfo(input.requestedQuality).id,
         format,
         requestedSeconds,
-        estimatedRenderMs: estimateRenderMs(qualityInfo.model, requestedSeconds),
+        estimatedRenderMs: estimateRenderMs(model, requestedSeconds),
       };
     }
   }

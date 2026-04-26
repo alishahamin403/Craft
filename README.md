@@ -7,7 +7,7 @@ Craft is a red, Pinterest-inspired video generator for shalwar kameez product co
 - Next.js App Router + TypeScript
 - Supabase Postgres for users and generation metadata
 - Supabase Storage for private uploaded/generated media
-- fal.ai Kling video generation
+- fal.ai video generation across Kling, PixVerse, MiniMax, LTX, Wan, Sora, and Veo endpoints
 - Google OAuth sign-in with signed HTTP-only sessions
 - Vitest + Playwright test coverage
 
@@ -59,7 +59,7 @@ npm run test:e2e
 ## Notes
 
 - Generated assets and metadata are stored in Supabase when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured. The local SQLite/disk backend is still available for tests with `CRAFT_STORAGE_BACKEND=local`.
-- The app offers Low, Medium, and High quality tiers with upfront fal.ai cost estimates. Low maps to Kling 2.6 Pro, Medium maps to Kling 3.0 Pro, and High maps to Kling V3 4K.
+- The app offers Low, Medium, and High quality tiers with upfront fal.ai cost estimates. Craft then auto-selects a compatible model from the tier based on prompt, duration, format, and cost.
 - New generations are scoped to the signed-in Google user.
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.

@@ -7,8 +7,7 @@ import type { AuthUser } from "@/lib/auth";
 import {
   estimateVideoCost,
   formatEstimatedCost,
-  getVideoModelInfo,
-  getVideoQualityInfo,
+  getVideoModelsForQuality,
   VIDEO_QUALITY_CATALOG,
   type GenerationItemResponse,
   type GenerationRecord,
@@ -19,7 +18,7 @@ import CraftLogo from "./CraftLogo";
 import styles from "./dashboard.module.css";
 
 const POLL_INTERVAL_MS = 2000;
-const DURATION_OPTIONS = [5, 10, 15] as const;
+const DURATION_OPTIONS = [4, 5, 6, 8, 10, 12, 15] as const;
 
 function createIdempotencyKey() {
   return globalThis.crypto?.randomUUID?.() ??
@@ -91,19 +90,31 @@ function formatRemainingTime(ms: number) {
 }
 
 function getVisibleDurations(quality: VideoQuality) {
-  const model = getVideoModelInfo(getVideoQualityInfo(quality).model);
-  return DURATION_OPTIONS.filter((value) => model.durations.includes(value));
+  const models = getVideoModelsForQuality(quality);
+  return DURATION_OPTIONS.filter((value) =>
+    models.some((model) => model.durations.includes(value)),
+  );
 }
 
 function getQualityCostCopy(quality: VideoQuality, seconds: number) {
-  const qualityInfo = getVideoQualityInfo(quality);
-  const model = getVideoModelInfo(qualityInfo.model);
-  const lowerSupportedDurations = model.durations.filter((value) => value < seconds);
-  const pricedSeconds = model.durations.includes(seconds)
-    ? seconds
-    : lowerSupportedDurations[lowerSupportedDurations.length - 1] ?? model.durations[0];
+  const compatibleCosts = getVideoModelsForQuality(quality)
+    .filter((model) => model.durations.includes(seconds))
+    .map((model) => estimateVideoCost(model.id, seconds))
+    .sort((a, b) => a - b);
 
-  return `${formatEstimatedCost(estimateVideoCost(model.id, pricedSeconds))} for ${pricedSeconds}s`;
+  if (compatibleCosts.length === 0) return "No compatible model";
+
+  const minCost = compatibleCosts[0];
+  const maxCost = compatibleCosts[compatibleCosts.length - 1];
+  const costCopy = minCost === maxCost
+    ? formatEstimatedCost(minCost)
+    : `${formatEstimatedCost(minCost)}-${formatEstimatedCost(maxCost)}`;
+
+  return `${costCopy} for ${seconds}s`;
+}
+
+function getQualityModelCopy(quality: VideoQuality) {
+  return getVideoModelsForQuality(quality).map((model) => model.name).join(", ");
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -1096,9 +1107,10 @@ export default function Dashboard({
                   <span className={styles.fieldLabel}>Quality</span>
                   <div className={styles.qualityOptions} role="radiogroup" aria-label="Video quality">
                     {VIDEO_QUALITY_CATALOG.map((option) => {
-                      const model = getVideoModelInfo(option.model);
                       const isActive = option.id === quality;
-                      const durationMismatch = !model.durations.includes(seconds);
+                      const durationMismatch = !getVisibleDurations(option.id).includes(
+                        seconds as (typeof DURATION_OPTIONS)[number],
+                      );
 
                       return (
                         <button
@@ -1115,12 +1127,10 @@ export default function Dashboard({
                               {getQualityCostCopy(option.id, seconds)}
                             </span>
                           </span>
-                          <span className={styles.qualityModel}>{model.name}</span>
+                          <span className={styles.qualityModel}>{getQualityModelCopy(option.id)}</span>
                           <span className={styles.qualityDesc}>
                             {durationMismatch
-                              ? `${option.description} · ${model.durations[0]}s or ${
-                                  model.durations[model.durations.length - 1]
-                                }s only`
+                              ? `${option.description} · choose a compatible length`
                               : option.description}
                           </span>
                         </button>

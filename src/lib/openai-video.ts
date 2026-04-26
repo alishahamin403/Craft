@@ -1,5 +1,5 @@
 /**
- * Video generation via Kling Pro models on fal.ai.
+ * Video generation via fal.ai image-to-video models.
  * The file name is kept for compatibility with older imports.
  */
 
@@ -56,7 +56,7 @@ function mapFalStatus(
 
 // ── Duration mapping ──────────────────────────────────────────────────────────
 
-function toFalDuration(model: VideoModelId, requestedSeconds: number) {
+function toSupportedDuration(model: VideoModelId, requestedSeconds: number) {
   const modelInfo = getVideoModelInfo(model);
   if (!modelInfo.durations.includes(requestedSeconds)) {
     throw new OpenAIVideoRequestError(
@@ -66,10 +66,10 @@ function toFalDuration(model: VideoModelId, requestedSeconds: number) {
     );
   }
 
-  return String(requestedSeconds);
+  return requestedSeconds;
 }
 
-// ── Image → base64 data URI (accepted directly by Kling) ─────────────────────
+// ── Image → base64 data URI accepted directly by fal.ai ──────────────────────
 
 // OpenAI gpt-image-1 supported sizes closest to our target formats
 const OUTPAINT_CANVAS: Record<VideoFormat, { w: number; h: number; size: "1536x1024" | "1024x1536" }> = {
@@ -170,7 +170,7 @@ async function outpaintToFormat(
     return `data:image/jpeg;base64,${fallback.toString("base64")}`;
   }
 
-  // Resize/crop the outpainted result to exact Kling dimensions
+  // Resize/crop the outpainted result to exact video dimensions
   const final = await sharp(Buffer.from(b64, "base64"))
     .resize(targetW, targetH, { fit: "cover", position: "centre", withoutEnlargement: false })
     .jpeg({ quality: 92, mozjpeg: true })
@@ -208,10 +208,16 @@ async function buildImageDataUri(image: File, format: VideoFormat, prompt: strin
 // ── Submit job ────────────────────────────────────────────────────────────────
 
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
-const FAL_REQUEST_ENDPOINT = "fal-ai/kling-video";
 const FAL_ENDPOINTS: Record<VideoModelId, string> = {
+  "minimax-hailuo-fast": "fal-ai/minimax/hailuo-02-fast/image-to-video",
+  "pixverse-v6": "fal-ai/pixverse/v6/image-to-video",
   "kling-2.6": "fal-ai/kling-video/v2.6/pro/image-to-video",
+  "ltx-2": "fal-ai/ltx-2/image-to-video",
+  "wan-2.7": "fal-ai/wan/v2.7/image-to-video",
+  "sora-2": "fal-ai/sora-2/image-to-video",
+  "veo-3.1-fast": "fal-ai/veo3.1/fast/image-to-video",
   "kling-3.0": "fal-ai/kling-video/v3/pro/image-to-video",
+  "veo-3.1": "fal-ai/veo3.1/image-to-video",
   "kling-v3-4k": "fal-ai/kling-video/v3/4k/image-to-video",
 };
 
@@ -220,10 +226,117 @@ function getFalSubmitUrl(model: VideoModelId) {
 }
 
 function getFalRequestUrl(
+  model: VideoModelId,
   requestId: string,
   action?: "status" | "cancel",
 ) {
-  return `${FAL_QUEUE_BASE_URL}/${FAL_REQUEST_ENDPOINT}/requests/${requestId}${action ? `/${action}` : ""}`;
+  return `${FAL_QUEUE_BASE_URL}/${FAL_ENDPOINTS[model]}/requests/${requestId}${action ? `/${action}` : ""}`;
+}
+
+function toFalAspectRatio(format: VideoFormat) {
+  return format === "portrait" ? "9:16" : "16:9";
+}
+
+function buildFalInput(input: {
+  imageUrl: string;
+  prompt: string;
+  format: VideoFormat;
+  requestedSeconds: number;
+  model: VideoModelId;
+}) {
+  const duration = toSupportedDuration(input.model, input.requestedSeconds);
+  const negativePrompt =
+    "blur, distortion, pixelation, artifacts, warping, flickering, low quality, noise, grain, overexposure, bad anatomy";
+
+  switch (input.model) {
+    case "minimax-hailuo-fast":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          image_url: input.imageUrl,
+          duration: String(duration),
+          prompt_optimizer: true,
+        },
+      };
+    case "pixverse-v6":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          image_url: input.imageUrl,
+          resolution: "720p",
+          duration,
+          generate_audio_switch: false,
+          negative_prompt: negativePrompt,
+        },
+      };
+    case "ltx-2":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          image_url: input.imageUrl,
+          duration,
+          resolution: "1080p",
+          fps: 25,
+          generate_audio: false,
+        },
+      };
+    case "wan-2.7":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          image_url: input.imageUrl,
+          resolution: "1080p",
+          duration,
+          negative_prompt: negativePrompt,
+          enable_prompt_expansion: true,
+          enable_safety_checker: true,
+        },
+      };
+    case "sora-2":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          image_url: input.imageUrl,
+          duration,
+          resolution: "720p",
+          aspect_ratio: toFalAspectRatio(input.format),
+          delete_video: true,
+          model: "sora-2",
+        },
+      };
+    case "veo-3.1-fast":
+    case "veo-3.1":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          image_url: input.imageUrl,
+          duration: `${duration}s`,
+          aspect_ratio: toFalAspectRatio(input.format),
+          resolution: "720p",
+          generate_audio: false,
+          safety_tolerance: "4",
+        },
+      };
+    case "kling-2.6":
+    case "kling-3.0":
+    case "kling-v3-4k":
+      return {
+        submittedSeconds: duration,
+        body: {
+          prompt: input.prompt,
+          start_image_url: input.imageUrl,
+          duration: String(duration),
+          generate_audio: false,
+          negative_prompt: negativePrompt,
+        },
+      };
+  }
 }
 
 interface FalSubmitResponse {
@@ -260,11 +373,11 @@ function getFalResultPayload(result: FalResultResponse): FalResultPayload {
 
 async function fetchFalResultPayload(
   requestIdOrUrl: string,
-  options: { allowNotReady: boolean },
+  options: { allowNotReady: boolean; model: VideoModelId },
 ) {
   const resultUrl = requestIdOrUrl.startsWith("http")
     ? requestIdOrUrl
-    : getFalRequestUrl(requestIdOrUrl);
+    : getFalRequestUrl(options.model, requestIdOrUrl);
 
   const resultRes = await fetch(resultUrl, {
     method: "GET",
@@ -278,7 +391,7 @@ async function fetchFalResultPayload(
     }
 
     throw new OpenAIVideoRequestError(
-      `Failed to fetch Kling result (HTTP ${resultRes.status})`,
+      `Failed to fetch ${getVideoModelInfo(options.model).name} result (HTTP ${resultRes.status})`,
       resultRes.status,
     );
   }
@@ -294,7 +407,13 @@ export async function createVideoJob(input: {
   model: VideoModelId;
 }): Promise<VideoJobSnapshot> {
   const imageUrl = await buildImageDataUri(input.image, input.format, input.prompt);
-  const duration = toFalDuration(input.model, input.requestedSeconds);
+  const falInput = buildFalInput({
+    imageUrl,
+    prompt: input.prompt,
+    format: input.format,
+    requestedSeconds: input.requestedSeconds,
+    model: input.model,
+  });
   const submitUrl = getFalSubmitUrl(input.model);
 
   const response = await fetch(submitUrl, {
@@ -303,32 +422,25 @@ export async function createVideoJob(input: {
       Authorization: `Key ${getFalAPIKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      prompt: input.prompt,
-      start_image_url: imageUrl,
-      duration,
-      generate_audio: false,
-      negative_prompt:
-        "blur, distortion, pixelation, artifacts, warping, flickering, low quality, noise, grain, overexposure, bad anatomy",
-    }),
+    body: JSON.stringify(falInput.body),
     cache: "no-store",
   });
 
   if (!response.ok) {
     const text = await response.text();
     throw new OpenAIVideoRequestError(
-      `Kling job submission failed: ${text}`,
+      `${getVideoModelInfo(input.model).name} job submission failed: ${text}`,
       response.status,
     );
   }
 
   const raw = await response.text();
-  console.log("[Kling] submit response:", raw);
+  console.log(`[${getVideoModelInfo(input.model).name}] submit response:`, raw);
   const data = JSON.parse(raw) as FalSubmitResponse;
 
   if (!data.request_id) {
     throw new OpenAIVideoRequestError(
-      `Kling submit returned no request_id. Response: ${raw}`,
+      `${getVideoModelInfo(input.model).name} submit returned no request_id. Response: ${raw}`,
       200,
     );
   }
@@ -337,7 +449,7 @@ export async function createVideoJob(input: {
     id: data.request_id,
     status: "queued",
     progress: null,
-    submittedSeconds: Number(duration),
+    submittedSeconds: falInput.submittedSeconds,
     errorMessage: null,
     videoUrl: null,
     size: null,
@@ -347,8 +459,11 @@ export async function createVideoJob(input: {
 
 // ── Retrieve / poll job ───────────────────────────────────────────────────────
 
-export async function retrieveVideoJob(requestId: string): Promise<VideoJobSnapshot> {
-  const statusUrl = getFalRequestUrl(requestId, "status");
+export async function retrieveVideoJob(
+  requestId: string,
+  model: VideoModelId,
+): Promise<VideoJobSnapshot> {
+  const statusUrl = getFalRequestUrl(model, requestId, "status");
 
   const statusRes = await fetch(statusUrl, {
     method: "GET",
@@ -382,11 +497,12 @@ export async function retrieveVideoJob(requestId: string): Promise<VideoJobSnaps
 
     const result = await fetchFalResultPayload(statusData.response_url ?? requestId, {
       allowNotReady: false,
+      model,
     });
 
     if (!result?.video?.url) {
       throw new OpenAIVideoRequestError(
-        `Kling job completed but response contained no video URL. Raw: ${JSON.stringify(result)}`,
+        `${getVideoModelInfo(model).name} job completed but response contained no video URL. Raw: ${JSON.stringify(result)}`,
         200,
       );
     }
@@ -405,6 +521,7 @@ export async function retrieveVideoJob(requestId: string): Promise<VideoJobSnaps
 
   const readyResult = await fetchFalResultPayload(statusData.response_url ?? requestId, {
     allowNotReady: true,
+    model,
   });
 
   if (readyResult?.video?.url) {
@@ -426,7 +543,7 @@ export async function retrieveVideoJob(requestId: string): Promise<VideoJobSnaps
       status: "failed",
       progress: null,
       submittedSeconds: null,
-      errorMessage: statusData.error ?? "Kling video generation failed.",
+      errorMessage: statusData.error ?? `${getVideoModelInfo(model).name} video generation failed.`,
       videoUrl: null,
       size: null,
       expiresAt: null,
@@ -451,29 +568,35 @@ export async function retrieveVideoJob(requestId: string): Promise<VideoJobSnaps
 
 // ── Download video asset ──────────────────────────────────────────────────────
 // Fetches the fal.ai result to get the video URL, then downloads the bytes.
-// The `variant` param is kept for interface compatibility but Kling only provides
-// a video — we use the source image as the thumbnail elsewhere.
+// The `variant` param is kept for interface compatibility. fal image-to-video
+// endpoints don't consistently produce thumbnails, so callers fall back to the
+// source image as the poster.
 
 export async function downloadVideoAsset(
   requestId: string,
+  model: VideoModelId,
   variant: "video" | "thumbnail",
 ): Promise<{ buffer: Buffer; contentType: string | null }> {
   if (variant === "thumbnail") {
-    // Kling doesn't produce a separate thumbnail — caller uses sourceImageUrl
-    throw new Error("Thumbnail not available for Kling; use source image instead.");
+    // fal image-to-video endpoints don't consistently produce a thumbnail.
+    // The caller uses the source image as the poster when no thumbnail exists.
+    throw new Error("Thumbnail not available; use source image instead.");
   }
 
-  const result = await fetchFalResultPayload(requestId, { allowNotReady: false });
+  const result = await fetchFalResultPayload(requestId, {
+    allowNotReady: false,
+    model,
+  });
   const videoUrl = result?.video?.url;
 
   if (!videoUrl) {
-    throw new Error("No video URL in Kling result.");
+    throw new Error(`No video URL in ${getVideoModelInfo(model).name} result.`);
   }
 
   // Download the actual video bytes
   const videoRes = await fetch(videoUrl, { cache: "no-store" });
   if (!videoRes.ok) {
-    throw new Error(`Failed to download Kling video from ${videoUrl}`);
+    throw new Error(`Failed to download generated video from ${videoUrl}`);
   }
 
   return {
@@ -484,8 +607,11 @@ export async function downloadVideoAsset(
 
 // ── Cancel job ────────────────────────────────────────────────────────────────
 
-export async function cancelVideoJob(requestId: string): Promise<void> {
-  await fetch(getFalRequestUrl(requestId, "cancel"), {
+export async function cancelVideoJob(
+  requestId: string,
+  model: VideoModelId,
+): Promise<void> {
+  await fetch(getFalRequestUrl(model, requestId, "cancel"), {
     method: "PUT",
     headers: { Authorization: `Key ${getFalAPIKey()}` },
     cache: "no-store",

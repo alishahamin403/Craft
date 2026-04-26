@@ -87,17 +87,24 @@ test("submits an image, shows a pending card, then renders a playable library ca
   await expect(page.getByRole("radio", { name: /Low/ })).toBeVisible();
   await expect(page.getByRole("radio", { name: /Medium/ })).toBeVisible();
   await expect(page.getByRole("radio", { name: /High/ })).toBeVisible();
+  await expect(page.getByText("MiniMax Hailuo Fast")).toBeVisible();
+  await expect(page.getByText("PixVerse V6")).toBeVisible();
   await expect(page.getByText("Kling 2.6 Pro")).toBeVisible();
-  await expect(page.getByText("$0.35 for 5s")).toBeVisible();
-  await expect(page.getByText("$0.56 for 5s")).toBeVisible();
+  await expect(page.getByText("Veo 3.1 Fast")).toBeVisible();
+  await expect(page.getByText("$0.23-$0.35 for 5s")).toBeVisible();
+  await expect(page.getByText("$0.50-$0.56 for 5s")).toBeVisible();
   await expect(page.getByText("$2.10 for 5s")).toBeVisible();
   await expect(page.getByText("Portrait 9:16", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "4s", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "5s", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "6s", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "8s", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "10s", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "12s", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "15s", exact: true })).toBeVisible();
 
   await page.getByRole("radio", { name: /Low/ }).click();
-  await expect(page.getByRole("button", { name: "15s", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "15s", exact: true })).toBeVisible();
   await page.getByRole("radio", { name: /Medium/ }).click();
   await expect(page.getByRole("button", { name: "15s", exact: true })).toBeVisible();
 

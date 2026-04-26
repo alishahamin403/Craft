@@ -18,7 +18,7 @@ describe("selectVideoRoute", () => {
       requestedSeconds: 5,
     });
 
-    expect(route.model).toBe("kling-2.6");
+    expect(route.model).toBe("pixverse-v6");
     expect(route.format).toBe("portrait");
     expect(route.requestedSeconds).toBe(5);
   });
@@ -28,6 +28,7 @@ describe("selectVideoRoute", () => {
       image: buildImageFile(),
       prompt: "premium cinematic landing page hero video for a fashion brand",
       requestedSeconds: 15,
+      requestedQuality: "medium",
     });
 
     expect(route.model).toBe("kling-3.0");
@@ -43,8 +44,20 @@ describe("selectVideoRoute", () => {
       requestedQuality: "low",
     });
 
-    expect(route.model).toBe("kling-2.6");
+    expect(route.model).toBe("pixverse-v6");
     expect(route.quality).toBe("low");
+  });
+
+  it("routes dialogue prompts to Sora when medium quality supports the duration", async () => {
+    const route = await selectVideoRoute({
+      image: buildImageFile(),
+      prompt: "Have the person say welcome to our new collection with clear voice audio",
+      requestedSeconds: 8,
+      requestedQuality: "medium",
+    });
+
+    expect(route.model).toBe("sora-2");
+    expect(route.quality).toBe("medium");
   });
 
   it("honors an explicit high quality selection without auto-selecting it by default", async () => {

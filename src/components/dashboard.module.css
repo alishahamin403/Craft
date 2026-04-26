@@ -873,7 +873,9 @@
 .qualityModel {
   font-size: 0.75rem;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 
 .qualityDesc {

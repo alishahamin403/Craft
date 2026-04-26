@@ -105,6 +105,41 @@ describe("createVideoJob", () => {
     expect(result.submittedSeconds).toBe(12);
   });
 
+  it("submits PixVerse jobs with the image_url schema", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            request_id: "req-pixverse",
+            status_url: "https://queue.fal.run/.../requests/req-pixverse/status",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createVideoJob({
+      image: buildImageFile(),
+      prompt: "Fast social product reveal.",
+      model: "pixverse-v6",
+      format: "portrait",
+      requestedSeconds: 5,
+    });
+
+    const [submitUrl, submitInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(submitUrl).toBe("https://queue.fal.run/fal-ai/pixverse/v6/image-to-video");
+
+    const body = JSON.parse(submitInit.body as string);
+    expect(body.image_url).toMatch(/^data:image\/jpeg;base64,/);
+    expect(body.start_image_url).toBeUndefined();
+    expect(body.duration).toBe(5);
+    expect(body.resolution).toBe("720p");
+    expect(body.generate_audio_switch).toBe(false);
+    expect(result.submittedSeconds).toBe(5);
+  });
+
   it("maps the landscape option to the correct output size", () => {
     expect(getVideoSizeForFormat("landscape")).toBe("1280x720");
   });
@@ -154,20 +189,20 @@ describe("createVideoJob", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const job = await retrieveVideoJob("req-v3");
-    const video = await downloadVideoAsset("req-v3", "video");
+    const job = await retrieveVideoJob("req-v3", "kling-3.0");
+    const video = await downloadVideoAsset("req-v3", "kling-3.0", "video");
 
     expect(job.status).toBe("completed");
     expect(job.videoUrl).toBe("https://v3b.fal.media/files/output.mp4");
     expect(video.buffer.toString()).toBe("mp4-bytes");
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://queue.fal.run/fal-ai/kling-video/requests/req-v3/status",
+      "https://queue.fal.run/fal-ai/kling-video/v3/pro/image-to-video/requests/req-v3/status",
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      "https://queue.fal.run/fal-ai/kling-video/requests/req-v3",
+      "https://queue.fal.run/fal-ai/kling-video/v3/pro/image-to-video/requests/req-v3",
     );
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      "https://queue.fal.run/fal-ai/kling-video/requests/req-v3",
+      "https://queue.fal.run/fal-ai/kling-video/v3/pro/image-to-video/requests/req-v3",
     );
   });
 
@@ -200,7 +235,7 @@ describe("createVideoJob", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const job = await retrieveVideoJob("req-ready");
+    const job = await retrieveVideoJob("req-ready", "kling-3.0");
 
     expect(job.status).toBe("completed");
     expect(job.progress).toBe(100);
@@ -231,7 +266,7 @@ describe("createVideoJob", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const job = await retrieveVideoJob("req-rendering");
+    const job = await retrieveVideoJob("req-rendering", "kling-3.0");
 
     expect(job.status).toBe("in_progress");
     expect(job.progress).toBe(10);
@@ -241,10 +276,10 @@ describe("createVideoJob", () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await cancelVideoJob("req-cancel");
+    await cancelVideoJob("req-cancel", "kling-3.0");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://queue.fal.run/fal-ai/kling-video/requests/req-cancel/cancel",
+      "https://queue.fal.run/fal-ai/kling-video/v3/pro/image-to-video/requests/req-cancel/cancel",
       expect.objectContaining({
         method: "PUT",
         headers: { Authorization: "Key test-fal-key" },

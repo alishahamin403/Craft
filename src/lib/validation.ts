@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   getVideoModelInfo,
+  getVideoModelsForQuality,
   getVideoQualityInfo,
   VIDEO_FORMATS,
   VIDEO_MODELS,
@@ -82,7 +83,7 @@ export function parseCreateGenerationFormData(formData: FormData) {
   const selectedModel = parsed.data.model ??
     (parsed.data.quality ? getVideoQualityInfo(parsed.data.quality).model : undefined);
 
-  if (selectedModel) {
+  if (parsed.data.model && selectedModel) {
     const modelInfo = getVideoModelInfo(selectedModel);
     if (parsed.data.format && !modelInfo.formats.includes(parsed.data.format)) {
       throw new RequestValidationError(
@@ -93,6 +94,18 @@ export function parseCreateGenerationFormData(formData: FormData) {
     if (!modelInfo.durations.includes(parsed.data.seconds)) {
       throw new RequestValidationError(
         `${modelInfo.name} supports ${formatDurationOptions(modelInfo.durations)} clips.`,
+      );
+    }
+  } else if (parsed.data.quality) {
+    const models = getVideoModelsForQuality(parsed.data.quality);
+    const hasCompatibleModel = models.some((modelInfo) =>
+      (!parsed.data.format || modelInfo.formats.includes(parsed.data.format)) &&
+      modelInfo.durations.includes(parsed.data.seconds),
+    );
+
+    if (!hasCompatibleModel) {
+      throw new RequestValidationError(
+        `${getVideoQualityInfo(parsed.data.quality).name} quality does not support the selected clip length.`,
       );
     }
   }

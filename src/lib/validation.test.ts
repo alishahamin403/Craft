@@ -70,10 +70,10 @@ describe("parseCreateGenerationFormData", () => {
   it("validates durations for a selected quality tier", () => {
     const formData = buildValidFormData();
     formData.set("quality", "low");
-    formData.set("seconds", "15");
+    formData.set("seconds", "3");
 
     expect(() => parseCreateGenerationFormData(formData)).toThrow(
-      "Kling 2.6 Pro supports 5s or 10s clips.",
+      "Low quality does not support the selected clip length.",
     );
   });
 });

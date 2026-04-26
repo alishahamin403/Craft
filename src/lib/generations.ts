@@ -134,7 +134,8 @@ async function finalizeCompletedGeneration(
     }
   }
 
-  const videoAsset = await downloadVideoAsset(videoId, "video");
+  const fallbackModel = row.model ?? "kling-3.0";
+  const videoAsset = await downloadVideoAsset(videoId, fallbackModel, "video");
   const videoPath = await saveGeneratedAsset(
     "videos",
     buildGeneratedFileName(row.id, videoAsset.contentType, ".mp4"),
@@ -144,7 +145,7 @@ async function finalizeCompletedGeneration(
 
   let thumbnailPath: string | null = row.thumbnailPath;
   try {
-    const thumbnailAsset = await downloadVideoAsset(videoId, "thumbnail");
+    const thumbnailAsset = await downloadVideoAsset(videoId, fallbackModel, "thumbnail");
     thumbnailPath = await saveGeneratedAsset(
       "thumbnails",
       buildGeneratedFileName(row.id, thumbnailAsset.contentType, ".webp"),
@@ -172,7 +173,7 @@ export async function cancelAndDeleteGenerationRecord(id: string, ownerId: strin
   if (!row) return false;
 
   if (row.openaiVideoId && (row.status === "queued" || row.status === "in_progress")) {
-    try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
+    try { await cancelVideoJob(row.openaiVideoId, row.model ?? "kling-3.0"); } catch { /* ignore */ }
   }
 
   await deleteGeneration(id);
@@ -181,7 +182,7 @@ export async function cancelAndDeleteGenerationRecord(id: string, ownerId: strin
 
 async function cancelGenerationRow(row: GenerationRow) {
   if (row.openaiVideoId) {
-    try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
+    try { await cancelVideoJob(row.openaiVideoId, row.model ?? "kling-3.0"); } catch { /* ignore */ }
   }
 
   const cancelled = await updateGeneration(row.id, {
@@ -319,7 +320,7 @@ async function refreshGenerationRow(row: GenerationRow) {
     MAX_JOB_TIMEOUT_MS,
   );
   if (age > timeoutMs) {
-    try { await cancelVideoJob(row.openaiVideoId); } catch { /* ignore */ }
+    try { await cancelVideoJob(row.openaiVideoId, row.model ?? "kling-3.0"); } catch { /* ignore */ }
     const timedOut = await updateGeneration(row.id, {
       status: "failed",
       errorMessage: "Generation took longer than expected and was automatically stopped.",
@@ -328,7 +329,7 @@ async function refreshGenerationRow(row: GenerationRow) {
   }
 
   try {
-    const job = await retrieveVideoJob(row.openaiVideoId);
+    const job = await retrieveVideoJob(row.openaiVideoId, row.model ?? "kling-3.0");
 
     if (job.status === "completed") {
       const completedRow = await finalizeCompletedGeneration(row, row.openaiVideoId, job.videoUrl);
