@@ -26,6 +26,7 @@ describe("parseCreateGenerationFormData", () => {
     expect(payload.prompt).toContain("fabric reveal");
     expect(payload.idempotencyKey).toBe("submit-key-123");
     expect(payload.model).toBeUndefined();
+    expect(payload.quality).toBeUndefined();
     expect(payload.format).toBeUndefined();
     expect(payload.seconds).toBe(5);
     expect(payload.image.name).toBe("lookbook.jpg");
@@ -64,5 +65,15 @@ describe("parseCreateGenerationFormData", () => {
 
     expect(payload.model).toBe("kling-3.0");
     expect(payload.seconds).toBe(12);
+  });
+
+  it("validates durations for a selected quality tier", () => {
+    const formData = buildValidFormData();
+    formData.set("quality", "low");
+    formData.set("seconds", "15");
+
+    expect(() => parseCreateGenerationFormData(formData)).toThrow(
+      "Kling 2.6 Pro supports 5s or 10s clips.",
+    );
   });
 });

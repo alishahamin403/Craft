@@ -2,9 +2,11 @@ import sharp from "sharp";
 
 import {
   getVideoModelInfo,
+  getVideoQualityInfo,
   VIDEO_MODEL_CATALOG,
   type VideoFormat,
   type VideoModelId,
+  type VideoQuality,
 } from "@/lib/types";
 
 export interface ImageAnalysis {
@@ -15,6 +17,7 @@ export interface ImageAnalysis {
 
 export interface VideoRouteDecision {
   model: VideoModelId;
+  quality: VideoQuality;
   format: VideoFormat;
   requestedSeconds: number;
   estimatedRenderMs: number;
@@ -97,10 +100,10 @@ function routeScore(input: {
 
 export function estimateRenderMs(model: VideoModelId | null, seconds: number | null) {
   const duration = seconds ?? DEFAULT_SECONDS;
-  const baseMs = model === "kling-3.0" ? 95_000 : 75_000;
-  const perSecondMs = model === "kling-3.0" ? 13_000 : 10_000;
+  const baseMs = model === "kling-v3-4k" ? 150_000 : model === "kling-3.0" ? 95_000 : 75_000;
+  const perSecondMs = model === "kling-v3-4k" ? 22_000 : model === "kling-3.0" ? 13_000 : 10_000;
 
-  return Math.min(baseMs + duration * perSecondMs, 8 * 60 * 1000);
+  return Math.min(baseMs + duration * perSecondMs, 12 * 60 * 1000);
 }
 
 export function estimateProgress(input: {
@@ -135,6 +138,7 @@ export async function selectVideoRoute(input: {
   requestedSeconds?: number | null;
   requestedFormat?: VideoFormat | null;
   requestedModel?: VideoModelId | null;
+  requestedQuality?: VideoQuality | null;
 }): Promise<VideoRouteDecision> {
   const image = await analyzeImage(input.image);
   const requestedSeconds = normalizeRequestedSeconds(input.requestedSeconds);
@@ -146,13 +150,28 @@ export async function selectVideoRoute(input: {
   ) {
     return {
       model: input.requestedModel,
+      quality: getVideoModelInfo(input.requestedModel).quality,
       format,
       requestedSeconds,
       estimatedRenderMs: estimateRenderMs(input.requestedModel, requestedSeconds),
     };
   }
 
+  if (input.requestedQuality) {
+    const qualityInfo = getVideoQualityInfo(input.requestedQuality);
+    if (modelSupports(qualityInfo.model, format, requestedSeconds)) {
+      return {
+        model: qualityInfo.model,
+        quality: qualityInfo.id,
+        format,
+        requestedSeconds,
+        estimatedRenderMs: estimateRenderMs(qualityInfo.model, requestedSeconds),
+      };
+    }
+  }
+
   const candidates = VIDEO_MODEL_CATALOG
+    .filter((model) => model.autoSelectable)
     .filter((model) =>
       model.formats.includes(format) && model.durations.includes(requestedSeconds),
     )
@@ -172,6 +191,7 @@ export async function selectVideoRoute(input: {
 
   return {
     model,
+    quality: getVideoModelInfo(model).quality,
     format,
     requestedSeconds,
     estimatedRenderMs: estimateRenderMs(model, requestedSeconds),

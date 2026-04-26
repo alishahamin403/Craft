@@ -4,12 +4,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuthUser } from "@/lib/auth";
-import type { GenerationItemResponse, GenerationRecord } from "@/lib/types";
+import {
+  estimateVideoCost,
+  formatEstimatedCost,
+  getVideoModelInfo,
+  getVideoQualityInfo,
+  VIDEO_QUALITY_CATALOG,
+  type GenerationItemResponse,
+  type GenerationRecord,
+  type VideoQuality,
+} from "@/lib/types";
 
 import CraftLogo from "./CraftLogo";
 import styles from "./dashboard.module.css";
 
 const POLL_INTERVAL_MS = 2000;
+const DURATION_OPTIONS = [5, 10, 15] as const;
 
 function createIdempotencyKey() {
   return globalThis.crypto?.randomUUID?.() ??
@@ -61,6 +71,15 @@ function secondsCopy(item: GenerationRecord) {
   return `${item.requestedSeconds}s clip`;
 }
 
+function qualityCopy(quality: VideoQuality | null) {
+  switch (quality) {
+    case "low": return "Low quality";
+    case "medium": return "Medium quality";
+    case "high": return "High quality";
+    default: return null;
+  }
+}
+
 function estimateRenderMs(item: GenerationRecord) {
   return item.estimatedRenderMs;
 }
@@ -69,6 +88,22 @@ function formatRemainingTime(ms: number) {
   if (ms <= 20_000) return "Finalizing";
   const minutes = Math.max(1, Math.ceil(ms / 60_000));
   return `About ${minutes}m left`;
+}
+
+function getVisibleDurations(quality: VideoQuality) {
+  const model = getVideoModelInfo(getVideoQualityInfo(quality).model);
+  return DURATION_OPTIONS.filter((value) => model.durations.includes(value));
+}
+
+function getQualityCostCopy(quality: VideoQuality, seconds: number) {
+  const qualityInfo = getVideoQualityInfo(quality);
+  const model = getVideoModelInfo(qualityInfo.model);
+  const lowerSupportedDurations = model.durations.filter((value) => value < seconds);
+  const pricedSeconds = model.durations.includes(seconds)
+    ? seconds
+    : lowerSupportedDurations[lowerSupportedDurations.length - 1] ?? model.durations[0];
+
+  return `${formatEstimatedCost(estimateVideoCost(model.id, pricedSeconds))} for ${pricedSeconds}s`;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -392,6 +427,7 @@ function GenerationCard({
   const isPending = item.status === "queued" || item.status === "in_progress";
   const { pct, remainingCopy } = useGenerationProgress(item, isPending);
   const [expandedPrompt, setExpandedPrompt] = useState(false);
+  const selectedQuality = qualityCopy(item.quality);
 
   return (
     <article key={item.id} data-testid={`generation-card-${item.id}`} className={styles.card}>
@@ -490,6 +526,9 @@ function GenerationCard({
 
         <div className={styles.cardSpec}>
           <span>{secondsCopy(item)}</span>
+          {item.modelName && <span>{item.modelName}</span>}
+          {selectedQuality && <span>{selectedQuality}</span>}
+          {item.estimatedCost && <span>{item.estimatedCost} est.</span>}
         </div>
 
         <div className={styles.referenceStrip}>
@@ -645,11 +684,12 @@ export default function Dashboard({
   user: AuthUser;
 }) {
   const [tab, setTab] = useState<Tab>(() =>
-    initialGenerations.length > 0 ? "library" : "create",
+    initialGenerations.length > 0 ? "library" : "home",
   );
   const [generations, setGenerations] = useState(() => sortGenerations(initialGenerations));
   const [prompt, setPrompt] = useState("");
   const [seconds, setSeconds] = useState(5);
+  const [quality, setQuality] = useState<VideoQuality>("medium");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [cleanedDataUrl, setCleanedDataUrl] = useState<string | null>(null);
@@ -673,6 +713,7 @@ export default function Dashboard({
   // not on every state update. Prevents the effect from re-running (and firing an
   // immediate extra poll) whenever progress or other fields update.
   const pendingIdsKey = pendingGenerationIds.join(",");
+  const durationOptions = useMemo(() => getVisibleDurations(quality), [quality]);
 
   useEffect(() => {
     if (!selectedImage) { setPreviewUrl(null); return; }
@@ -683,7 +724,17 @@ export default function Dashboard({
 
   useEffect(() => {
     idempotencyKeyRef.current = null;
-  }, [selectedImage, cleanedDataUrl, prompt, seconds]);
+  }, [selectedImage, cleanedDataUrl, prompt, seconds, quality]);
+
+  function handleQualitySelect(nextQuality: VideoQuality) {
+    const nextDurations = getVisibleDurations(nextQuality);
+    setQuality(nextQuality);
+    setSeconds((current) =>
+      nextDurations.includes(current as (typeof DURATION_OPTIONS)[number])
+        ? current
+        : nextDurations[nextDurations.length - 1] ?? 5,
+    );
+  }
 
   function handleImageChange(file: File | null) {
     setSelectedImage(file);
@@ -771,6 +822,7 @@ export default function Dashboard({
       formData.set("userPrompt", prompt.trim());
       formData.set("idempotencyKey", idempotencyKey);
       formData.set("seconds", String(seconds));
+      formData.set("quality", quality);
 
       const response = await fetch("/api/generations", { method: "POST", body: formData });
       const payload = (await response.json()) as GenerationItemResponse | { error?: string };
@@ -1040,11 +1092,48 @@ export default function Dashboard({
                   </p>
                 </div>
 
+                <div className={styles.qualitySelector}>
+                  <span className={styles.fieldLabel}>Quality</span>
+                  <div className={styles.qualityOptions} role="radiogroup" aria-label="Video quality">
+                    {VIDEO_QUALITY_CATALOG.map((option) => {
+                      const model = getVideoModelInfo(option.model);
+                      const isActive = option.id === quality;
+                      const durationMismatch = !model.durations.includes(seconds);
+
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={isActive}
+                          className={isActive ? styles.qualityOptionActive : styles.qualityOption}
+                          onClick={() => handleQualitySelect(option.id)}
+                        >
+                          <span className={styles.qualityOptionTop}>
+                            <span className={styles.qualityName}>{option.name}</span>
+                            <span className={styles.qualityPrice}>
+                              {getQualityCostCopy(option.id, seconds)}
+                            </span>
+                          </span>
+                          <span className={styles.qualityModel}>{model.name}</span>
+                          <span className={styles.qualityDesc}>
+                            {durationMismatch
+                              ? `${option.description} · ${model.durations[0]}s or ${
+                                  model.durations[model.durations.length - 1]
+                                }s only`
+                              : option.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className={styles.controlsRow}>
                   <div className={styles.controlGroup}>
                     <span className={styles.fieldLabel}>Clip length</span>
                     <div className={styles.durationControl}>
-                      {[5, 10, 15].map((value) => (
+                      {durationOptions.map((value) => (
                         <button
                           key={value}
                           type="button"

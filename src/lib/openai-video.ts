@@ -212,6 +212,7 @@ const FAL_REQUEST_ENDPOINT = "fal-ai/kling-video";
 const FAL_ENDPOINTS: Record<VideoModelId, string> = {
   "kling-2.6": "fal-ai/kling-video/v2.6/pro/image-to-video",
   "kling-3.0": "fal-ai/kling-video/v3/pro/image-to-video",
+  "kling-v3-4k": "fal-ai/kling-video/v3/4k/image-to-video",
 };
 
 function getFalSubmitUrl(model: VideoModelId) {

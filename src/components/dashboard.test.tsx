@@ -10,6 +10,10 @@ const failedGeneration: GenerationRecord = {
   id: "failed-1",
   prompt: "Turn the outfit shot into a premium reveal.",
   userPrompt: null,
+  model: "kling-3.0",
+  modelName: "Kling 3.0 Pro",
+  quality: "medium",
+  estimatedCost: "$0.45",
   status: "failed",
   requestedSeconds: 5,
   submittedSeconds: 4,
@@ -49,5 +53,8 @@ describe("Dashboard", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("5s requested, 4s rendered")).toBeInTheDocument();
+    expect(screen.getByText("Kling 3.0 Pro")).toBeInTheDocument();
+    expect(screen.getByText("Medium quality")).toBeInTheDocument();
+    expect(screen.getByText("$0.45 est.")).toBeInTheDocument();
   });
 });

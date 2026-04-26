@@ -35,6 +35,37 @@ describe("selectVideoRoute", () => {
     expect(route.requestedSeconds).toBe(15);
   });
 
+  it("honors an explicit low quality selection", async () => {
+    const route = await selectVideoRoute({
+      image: buildImageFile(),
+      prompt: "simple product motion",
+      requestedSeconds: 5,
+      requestedQuality: "low",
+    });
+
+    expect(route.model).toBe("kling-2.6");
+    expect(route.quality).toBe("low");
+  });
+
+  it("honors an explicit high quality selection without auto-selecting it by default", async () => {
+    const highRoute = await selectVideoRoute({
+      image: buildImageFile(),
+      prompt: "premium cinematic fashion product reveal",
+      requestedSeconds: 5,
+      requestedQuality: "high",
+    });
+
+    const autoRoute = await selectVideoRoute({
+      image: buildImageFile(),
+      prompt: "premium cinematic fashion product reveal",
+      requestedSeconds: 5,
+    });
+
+    expect(highRoute.model).toBe("kling-v3-4k");
+    expect(highRoute.quality).toBe("high");
+    expect(autoRoute.model).not.toBe("kling-v3-4k");
+  });
+
   it("keeps progress moving when provider progress is stale", () => {
     const createdAt = new Date(
       Date.now() - estimateRenderMs("kling-2.6", 5) / 2,

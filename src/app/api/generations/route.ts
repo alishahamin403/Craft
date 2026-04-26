@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       userPrompt: payload.userPrompt ?? payload.prompt,
       idempotencyKey: payload.idempotencyKey,
       model: payload.model,
+      quality: payload.quality,
       format: payload.format,
       requestedSeconds: payload.seconds,
       ownerId: user.id,

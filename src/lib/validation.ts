@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import { getVideoModelInfo, VIDEO_FORMATS, VIDEO_MODELS } from "@/lib/types";
+import {
+  getVideoModelInfo,
+  getVideoQualityInfo,
+  VIDEO_FORMATS,
+  VIDEO_MODELS,
+  VIDEO_QUALITIES,
+} from "@/lib/types";
 
 export const ACCEPTED_IMAGE_TYPES = [
   "image/jpeg",
@@ -28,6 +34,7 @@ const createGenerationSchema = z.object({
     .max(128)
     .optional(),
   model: z.enum(VIDEO_MODELS).optional(),
+  quality: z.enum(VIDEO_QUALITIES).optional(),
   format: z.enum(VIDEO_FORMATS).optional(),
   seconds: z.coerce
     .number()
@@ -61,6 +68,7 @@ export function parseCreateGenerationFormData(formData: FormData) {
     userPrompt: formData.get("userPrompt") ?? undefined,
     idempotencyKey: formData.get("idempotencyKey") ?? undefined,
     model: formData.get("model") ?? undefined,
+    quality: formData.get("quality") ?? undefined,
     format: formData.get("format") ?? undefined,
     seconds: formData.get("seconds"),
   });
@@ -71,9 +79,12 @@ export function parseCreateGenerationFormData(formData: FormData) {
     );
   }
 
-  if (parsed.data.model && parsed.data.format) {
-    const modelInfo = getVideoModelInfo(parsed.data.model);
-    if (!modelInfo.formats.includes(parsed.data.format)) {
+  const selectedModel = parsed.data.model ??
+    (parsed.data.quality ? getVideoQualityInfo(parsed.data.quality).model : undefined);
+
+  if (selectedModel) {
+    const modelInfo = getVideoModelInfo(selectedModel);
+    if (parsed.data.format && !modelInfo.formats.includes(parsed.data.format)) {
       throw new RequestValidationError(
         `${modelInfo.name} does not support the selected format.`,
       );

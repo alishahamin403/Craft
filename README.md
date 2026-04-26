@@ -59,7 +59,7 @@ npm run test:e2e
 ## Notes
 
 - Generated assets and metadata are stored in Supabase when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured. The local SQLite/disk backend is still available for tests with `CRAFT_STORAGE_BACKEND=local`.
-- The app auto-selects the compatible Kling model and format from the image, prompt, requested duration, and cost profile.
+- The app offers Low, Medium, and High quality tiers with upfront fal.ai cost estimates. Low maps to Kling 2.6 Pro, Medium maps to Kling 3.0 Pro, and High maps to Kling V3 4K.
 - New generations are scoped to the signed-in Google user.
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.

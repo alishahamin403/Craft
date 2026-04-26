@@ -809,6 +809,79 @@
   color: #fff;
 }
 
+/* ── Quality selector ── */
+.qualitySelector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qualityOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.qualityOption,
+.qualityOptionActive {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.qualityOption:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.qualityOptionActive {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+}
+
+.qualityOptionTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qualityName {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.qualityPrice {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.qualityModel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.qualityDesc {
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: var(--text-tertiary);
+}
+
 /* ── Model selector ── */
 .modelSelector {
   margin-bottom: 4px;
@@ -1344,6 +1417,7 @@
 
 .cardSpec {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
 }
@@ -1457,6 +1531,9 @@
   .formCard {
     grid-template-columns: 1fr;
   }
+  .qualityOptions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .dropZone {
     min-height: 180px;
   }
@@ -1507,6 +1584,9 @@
   .controlsRow {
     flex-direction: column;
     gap: 12px;
+  }
+  .qualityOptions {
+    grid-template-columns: 1fr;
   }
   .formFooter {
     flex-direction: column;

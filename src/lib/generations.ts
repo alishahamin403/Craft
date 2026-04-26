@@ -22,7 +22,17 @@ import {
   retrieveVideoJob,
 } from "@/lib/openai-video";
 import { estimateProgress, estimateRenderMs, selectVideoRoute } from "@/lib/video-routing";
-import type { GenerationRecord, GenerationRow, VideoFormat, VideoModelId } from "@/lib/types";
+import {
+  estimateVideoCost,
+  formatEstimatedCost,
+  getVideoModelInfo,
+  getVideoQualityForModel,
+  type GenerationRecord,
+  type GenerationRow,
+  type VideoFormat,
+  type VideoModelId,
+  type VideoQuality,
+} from "@/lib/types";
 
 function getPublicErrorMessage(errorMessage: string | null) {
   if (!errorMessage) return null;
@@ -42,11 +52,18 @@ function toGenerationRecord(
   progress: number | null = null,
 ): GenerationRecord {
   const effectiveSeconds = row.submittedSeconds ?? row.requestedSeconds;
+  const modelInfo = row.model ? getVideoModelInfo(row.model) : null;
 
   return {
     id: row.id,
     prompt: row.prompt,
     userPrompt: row.userPrompt,
+    model: row.model,
+    modelName: modelInfo?.name ?? null,
+    quality: getVideoQualityForModel(row.model),
+    estimatedCost: row.model
+      ? formatEstimatedCost(estimateVideoCost(row.model, effectiveSeconds))
+      : null,
     status: row.status,
     requestedSeconds: row.requestedSeconds,
     submittedSeconds: row.submittedSeconds,
@@ -193,6 +210,7 @@ export async function createGenerationEntry(input: {
   userPrompt: string;
   idempotencyKey?: string;
   model?: VideoModelId;
+  quality?: VideoQuality;
   format?: VideoFormat;
   requestedSeconds: number;
   ownerId: string;
@@ -211,6 +229,7 @@ export async function createGenerationEntry(input: {
     requestedSeconds: input.requestedSeconds,
     requestedFormat: input.format ?? null,
     requestedModel: input.model ?? null,
+    requestedQuality: input.quality ?? null,
   });
 
   const now = new Date().toISOString();

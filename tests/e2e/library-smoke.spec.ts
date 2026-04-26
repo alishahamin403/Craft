@@ -23,6 +23,10 @@ test("submits an image, shows a pending card, then renders a playable library ca
             "Create a boutique-style motion reveal with soft camera drift.",
           userPrompt:
             "Create a boutique-style motion reveal with soft camera drift.",
+          model: "kling-3.0",
+          modelName: "Kling 3.0 Pro",
+          quality: "medium",
+          estimatedCost: "$0.45",
           status: "queued",
           requestedSeconds: 5,
           submittedSeconds: 4,
@@ -53,6 +57,10 @@ test("submits an image, shows a pending card, then renders a playable library ca
             "Create a boutique-style motion reveal with soft camera drift.",
           userPrompt:
             "Create a boutique-style motion reveal with soft camera drift.",
+          model: "kling-3.0",
+          modelName: "Kling 3.0 Pro",
+          quality: "medium",
+          estimatedCost: "$0.45",
           status: generationPolls === 1 ? "in_progress" : "completed",
           requestedSeconds: 5,
           submittedSeconds: 4,
@@ -73,10 +81,24 @@ test("submits an image, shows a pending card, then renders a playable library ca
 
   await page.goto("/");
 
-  await expect(page.getByText("Kling", { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /Turn images into/ })).toBeVisible();
+  await page.getByRole("button", { name: /Start creating/ }).click();
+
+  await expect(page.getByRole("radio", { name: /Low/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Medium/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /High/ })).toBeVisible();
+  await expect(page.getByText("Kling 2.6 Pro")).toBeVisible();
+  await expect(page.getByText("$0.35 for 5s")).toBeVisible();
+  await expect(page.getByText("$0.56 for 5s")).toBeVisible();
+  await expect(page.getByText("$2.10 for 5s")).toBeVisible();
   await expect(page.getByText("Portrait 9:16", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "5s", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "10s", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "15s", exact: true })).toBeVisible();
+
+  await page.getByRole("radio", { name: /Low/ }).click();
+  await expect(page.getByRole("button", { name: "15s", exact: true })).toHaveCount(0);
+  await page.getByRole("radio", { name: /Medium/ }).click();
   await expect(page.getByRole("button", { name: "15s", exact: true })).toBeVisible();
 
   await page.getByLabel("Reference image").setInputFiles({
@@ -94,6 +116,15 @@ test("submits an image, shows a pending card, then renders a playable library ca
 
   await expect(page.getByTestId("generation-card-smoke-1")).toContainText(
     /Queued|Rendering/,
+  );
+  await expect(page.getByTestId("generation-card-smoke-1")).toContainText(
+    "Kling 3.0 Pro",
+  );
+  await expect(page.getByTestId("generation-card-smoke-1")).toContainText(
+    "Medium quality",
+  );
+  await expect(page.getByTestId("generation-card-smoke-1")).toContainText(
+    "$0.45 est.",
   );
 
   await expect(
